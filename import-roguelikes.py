@@ -223,6 +223,10 @@ for g in games:
         g['price_uah'] = int(p.get('final_price_in_cents', 0)) / 100
         if p.get('discount_pct'):
             g['discount'] = p['discount_pct']
+            orig = int(p.get('original_price_in_cents') or 0) / 100
+            if orig > g['price_uah']:
+                g['price_orig_uah'] = orig
+                g['saving_uah'] = round(orig - g['price_uah'], 2)
     elif it.get('is_free'):
         g['price'], g['price_uah'] = 'Безкоштовно', 0
     if (it.get('release') or {}).get('is_coming_soon'):

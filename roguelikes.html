@@ -115,6 +115,8 @@
         <option value="myHours">Скільки награв я</option>
         <option value="steam">За відгуками Steam</option>
         <option value="price">За ціною</option>
+        <option value="discount">За знижкою, %</option>
+        <option value="saving">За знижкою, ₴</option>
         <option value="release">За датою виходу</option>
         <option value="name">За назвою</option>
       </select>
@@ -221,6 +223,7 @@
     return true;
   }
 
+  const fmtUah = (v) => Math.round(v).toLocaleString('uk-UA') + '₴';
   const num = (v) => (v == null ? -Infinity : v);
   const SORTERS = {
     rating: (a, b) => num(a.rating) - num(b.rating) || num(a.steam_pct) - num(b.steam_pct),
@@ -229,11 +232,13 @@
     myHours: (a, b) => num(a.lib?.playtime_hours) - num(b.lib?.playtime_hours),
     steam: (a, b) => num(a.steam_pct) - num(b.steam_pct) || num(a.steam_reviews) - num(b.steam_reviews),
     price: (a, b) => num(a.lib ? 0 : a.price_uah) - num(b.lib ? 0 : b.price_uah),
+    discount: (a, b) => (a.lib ? 0 : a.discount || 0) - (b.lib ? 0 : b.discount || 0) || (a.lib ? 0 : a.saving_uah || 0) - (b.lib ? 0 : b.saving_uah || 0),
+    saving: (a, b) => (a.lib ? 0 : a.saving_uah || 0) - (b.lib ? 0 : b.saving_uah || 0) || (a.lib ? 0 : a.discount || 0) - (b.lib ? 0 : b.discount || 0),
     release: (a, b) => (a.release || '').localeCompare(b.release || ''),
     name: (a, b) => a.name.localeCompare(b.name, 'uk'),
     collection: (a, b) => (collPos[S.coll]?.get(b.key) ?? 1e9) - (collPos[S.coll]?.get(a.key) ?? 1e9),
   };
-  const DEFAULT_DIR = { rating: 'desc', difficulty: 'desc', tianHours: 'desc', myHours: 'desc', steam: 'desc', price: 'asc', release: 'desc', name: 'asc', collection: 'desc' };
+  const DEFAULT_DIR = { rating: 'desc', difficulty: 'desc', tianHours: 'desc', myHours: 'desc', steam: 'desc', price: 'asc', discount: 'desc', saving: 'desc', release: 'desc', name: 'asc', collection: 'desc' };
 
   let current = [];
   function compute() {
@@ -335,7 +340,7 @@
       const who = g.lib.source === 'own' ? '' : '👪 ';
       return `<span class="badge r ${cls}" title="${g.lib.source === 'own' ? 'Є у вашій бібліотеці' : 'Сімейна: ' + esc(g.lib.owners)}">${who}${played(g) ? '✓ ' + hours(g.lib.playtime_hours) : 'є, не грав'}</span>`;
     }
-    if (g.price) return `<span class="badge r price" title="Немає у вас. Ціна в Steam">${g.discount ? `<span class="disc">-${g.discount}%</span>` : ''}${esc(g.price)}</span>`;
+    if (g.price) return `<span class="badge r price" title="Немає у вас. Ціна в Steam${g.saving_uah ? ` (було ${fmtUah(g.price_orig_uah)}, економія ${fmtUah(g.saving_uah)})` : ''}">${g.discount ? `<span class="disc">-${g.discount}%</span>` : ''}${esc(g.price)}</span>`;
     if (g.coming_soon) return '<span class="badge r price">ще не вийшла</span>';
     return '';
   }
@@ -411,7 +416,7 @@
         <div class="meta">${g.rating != null ? `<b class="${rateCls(g.rating)}">★ ${g.rating}/10 від Тіана</b>` : ''}${statusPill(g)}${g.steam_pct != null ? `<span>Steam: 👍 ${g.steam_pct}% (${g.steam_reviews})</span>` : ''}</div>
         ${g.notes ? `<p>${esc(g.notes)}</p>` : ''}
         <dl class="kv">
-          <dt>У мене</dt><dd>${g.lib ? (played(g) ? `грав ${hours(g.lib.playtime_hours)}${g.lib.last_played ? `, востаннє ${g.lib.last_played}` : ''}` : 'є, ще не грав') + (g.lib.source === 'family' ? ` · сімейна (${esc(g.lib.owners)})` : ' · моя') : `немає${g.price ? ` · ${g.discount ? `<span class="r-good">-${g.discount}%</span> ` : ''}${esc(g.price)}` : ''}`}</dd>
+          <dt>У мене</dt><dd>${g.lib ? (played(g) ? `грав ${hours(g.lib.playtime_hours)}${g.lib.last_played ? `, востаннє ${g.lib.last_played}` : ''}` : 'є, ще не грав') + (g.lib.source === 'family' ? ` · сімейна (${esc(g.lib.owners)})` : ' · моя') : `немає${g.price ? ` · ${g.discount ? `<span class="r-good">-${g.discount}%</span> ` : ''}${esc(g.price)}${g.saving_uah ? ` <span style="opacity:.65">(було ${fmtUah(g.price_orig_uah)}, економія ${fmtUah(g.saving_uah)})</span>` : ''}` : ''}`}</dd>
           <dt>Жанр</dt><dd>${esc(g.genres.join(', '))}</dd>
           <dt>Сеттинг</dt><dd>${esc(g.settings.join(', '))}</dd>
           ${g.difficulty ? `<dt>Складність</dt><dd>${diffHtml(g.difficulty)}</dd>` : ''}
