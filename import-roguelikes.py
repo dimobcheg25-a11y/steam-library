@@ -198,7 +198,7 @@ for i in range(0, len(appids), 100):
         'ids': [{'appid': a} for a in appids[i:i + 100]],
         'context': {'language': 'ukrainian', 'country_code': 'UA'},
         'data_request': {'include_assets': True, 'include_reviews': True, 'include_release': True,
-                         'include_all_purchase_options': True},
+                         'include_all_purchase_options': True, 'include_tag_count': 20},
     }
     with urllib.request.urlopen(API + '?' + urllib.parse.urlencode({'input_json': json.dumps(inp)}), timeout=60) as resp:
         for it in json.load(resp)['response'].get('store_items', []):
@@ -229,12 +229,27 @@ for g in games:
         g['coming_soon'] = True
     if it.get('is_early_access'):
         g['early_access'] = True
+    # Режими гри (кооп, Remote Play Together, PvP, геймпад…) і теги гравців Steam (за вагою)
+    cats = it.get('categories') or {}
+    g['categories'] = sorted({c for k in ('supported_player_categoryids', 'feature_categoryids', 'controller_categoryids')
+                              for c in cats.get(k, [])})
+    g['tags'] = [t['tagid'] for t in it.get('tags') or []]
+
+# Назви тегів англійською й українською
+tag_names = {}
+for lang, key in (('english', 'en'), ('ukrainian', 'uk')):
+    url = 'https://api.steampowered.com/IStoreService/GetTagList/v1/?' + urllib.parse.urlencode({'language': lang})
+    with urllib.request.urlopen(url, timeout=60) as resp:
+        for t in json.load(resp)['response'].get('tags', []):
+            tag_names.setdefault(t['tagid'], {})[key] = t['name']
+used_tags = {tid for g in games for tid in g.get('tags', [])}
 
 payload = {
     'updated': dt.datetime.now().isoformat(timespec='minutes'),
     'source': SRC_LABEL,
     'games': games,
     'collections': collections_out,
+    'tags': {tid: tag_names.get(tid, {'en': str(tid)}) for tid in sorted(used_tags)},
 }
 OUT.write_text('// Згенеровано import-roguelikes.py\nwindow.ROGUELIKES = ' + json.dumps(payload, ensure_ascii=False) + ';\n', encoding='utf-8')
 

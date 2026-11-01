@@ -30,6 +30,12 @@
     </div>
 
     <div class="section">
+      <div class="label">Режим гри <button data-clear="modes">скинути</button></div>
+      <div class="chips-box" id="modes"></div>
+      <div class="hint">Дані зі Steam. Кілька вибраних режимів: гра має мати всі.</div>
+    </div>
+
+    <div class="section">
       <div class="label">Жанр <button data-clear="genres">скинути</button></div>
       <div class="chips-box" id="genres"></div>
     </div>
@@ -49,6 +55,14 @@
       <input type="search" id="featSearch" placeholder="Знайти… (кооп, декбилдер, пиксельарт)">
       <div class="taglist" id="featList"></div>
       <div class="hint">Особливості записані так, як у таблиці автора (російською). Клік: лише ігри з особливістю. «−»: сховати їх.</div>
+    </div>
+
+    <div class="section">
+      <div class="label">Теги Steam <button data-clear="stags">скинути</button></div>
+      <div class="selbox" id="selTags"></div>
+      <input type="search" id="tagSearch" placeholder="Знайти тег… (co-op, pixel, deckbuilding)">
+      <div class="taglist" id="tagList"></div>
+      <div class="hint">Теги гравців Steam. Враховую лише перші 10 тегів гри, щоб відсіяти випадкові. Кілька тегів: гра має мати всі.</div>
     </div>
 
     <div class="section">
@@ -141,8 +155,27 @@
   const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c; };
   const STATUS_CLS = { 'Пройдено': 'st-done', 'Огляд': 'st-done', 'Закинуто': 'st-drop', 'Чекає релізу': 'st-wait', 'У процесі': 'st-wait' };
 
+  // Режими гри за категоріями магазину Steam
+  const MODES = [
+    { id: 'solo', name: 'Одиночна', cats: [2] },
+    { id: 'coop', name: 'Кооператив', icon: '👥', short: 'Кооп', cats: [9, 38, 39, 48] },
+    { id: 'online', name: 'Онлайн-кооп', cats: [38] },
+    { id: 'local', name: 'Кооп на одному ПК', icon: '🛋', short: 'Локальний', cats: [39, 24, 37] },
+    { id: 'rpt', name: 'Remote Play Together', icon: '📡', short: 'Remote Play', cats: [44] },
+    { id: 'pvp', name: 'PvP', icon: '⚔', short: 'PvP', cats: [49, 36, 37, 47] },
+    { id: 'pad', name: 'Повна підтримка геймпада', cats: [28] },
+  ];
+  const MODE = Object.fromEntries(MODES.map((m) => [m.id, m]));
+  const hasMode = (g, id) => MODE[id].cats.some((c) => (g.categories || []).includes(c));
+  const TAGS = R.tags || {};
+  const TAG_TOP = 10;
+  const hasTag = (g, id) => { const i = (g.tags || []).indexOf(id); return i !== -1 && i < TAG_TOP; };
+  const tagName = (id) => TAGS[id]?.en || String(id);
+  const tagTitle = (id) => TAGS[id] ? `${TAGS[id].en}${TAGS[id].uk && TAGS[id].uk !== TAGS[id].en ? ' / ' + TAGS[id].uk : ''}` : '';
+
   // ---------- Стан ----------
   const DEFAULTS = {
+    modes: [], stags: [], stagExc: [],
     q: '', coll: -1, mine: 'all', genres: [], settings: [], features: [], featExc: [], featMode: 'any',
     statuses: [], minRate: 0, diffFrom: '', diffTo: '', onSale: false, maxPrice: '', yearFrom: '', yearTo: '',
     sort: 'rating', dir: 'desc', view: 'grid',
@@ -171,6 +204,11 @@
       if (S.features.length && (S.featMode === 'all'
         ? !S.features.every((x) => g.features.includes(x))
         : !S.features.some((x) => g.features.includes(x)))) return false;
+    }
+    if (skip !== 'modes' && S.modes.length && !S.modes.every((id) => MODE[id] && hasMode(g, id))) return false;
+    if (skip !== 'stags') {
+      if (S.stagExc.some((id) => hasTag(g, id))) return false;
+      if (S.stags.length && !S.stags.every((id) => hasTag(g, id))) return false;
     }
     if (S.minRate && !(g.rating >= S.minRate)) return false;
     if (S.diffFrom && !(g.difficulty >= +S.diffFrom)) return false;
@@ -252,6 +290,34 @@
     $('selFeat').innerHTML = sel.join('');
     document.querySelector('.seg[data-key="featMode"]').style.display = S.features.length > 1 ? '' : 'none';
 
+    // Режими: лічильник = скільки ігор лишиться, якщо додати цей режим
+    const modeBase = games.filter((g) => pass(g, 'modes'));
+    $('modes').innerHTML = MODES.map((m) => {
+      const on = S.modes.includes(m.id);
+      const need = on ? S.modes : [...S.modes, m.id];
+      const n = modeBase.filter((g) => need.every((id) => hasMode(g, id))).length;
+      return `<span class="chip ${on ? 'inc' : ''}" data-mode="${m.id}" style="${!on && !n ? 'opacity:.45' : ''}">${m.icon ? m.icon + ' ' : ''}${esc(m.name)} <span class="n">${n}</span></span>`;
+    }).join('');
+
+    // Теги Steam: лічильник серед поточних результатів
+    const tc = {};
+    for (const g of current) for (const id of (g.tags || []).slice(0, TAG_TOP)) tc[id] = (tc[id] || 0) + 1;
+    const tq = $('tagSearch').value.trim().toLowerCase();
+    let tids = Object.keys(TAGS).map(Number).filter((id) => tc[id] || S.stags.includes(id) || S.stagExc.includes(id));
+    if (tq) tids = tids.filter((id) => tagTitle(id).toLowerCase().includes(tq));
+    tids.sort((a, b) => (tc[b] || 0) - (tc[a] || 0) || tagName(a).localeCompare(tagName(b)));
+    $('tagList').innerHTML = tids.slice(0, 300).map((id) => {
+      const st = S.stags.includes(id) ? 'inc' : S.stagExc.includes(id) ? 'exc' : '';
+      return `<div class="tagrow ${st}" data-stag="${id}" title="${esc(tagTitle(id))}">
+        <span class="mark">${st === 'inc' ? '✓' : ''}</span><span class="nm"><span>${esc(tagName(id))}</span></span>
+        <span class="n">${tc[id] || 0}</span>
+        <button class="tb" data-stagexc="${id}" title="${st === 'exc' ? 'Повернути' : 'Сховати ігри з цим тегом'}">−</button></div>`;
+    }).join('') || '<div class="tagrow"><span class="n">Нічого не знайдено</span></div>';
+    const tsel = [];
+    if (S.stags.length) tsel.push(`<div class="grp">Мають: ${S.stags.map((id) => `<span class="chip inc" data-unstag="${id}">${esc(tagName(id))} ✕</span>`).join('')}</div>`);
+    if (S.stagExc.length) tsel.push(`<div class="grp">Без: ${S.stagExc.map((id) => `<span class="chip exc" data-unstag="${id}">${esc(tagName(id))} ✕</span>`).join('')}</div>`);
+    $('selTags').innerHTML = tsel.join('');
+
     $('minRate').value = S.minRate;
     $('minRateVal').textContent = S.minRate ? `${S.minRate}/10` : 'будь-яка';
     $('diffFrom').value = S.diffFrom; $('diffTo').value = S.diffTo;
@@ -281,6 +347,11 @@
   const diffHtml = (d) => d ? `<span class="diff" title="Складність за Тіаном">Складн. ${d}/10 <span class="bar"><i style="width:${d * 10}%"></i></span></span>` : '';
   const featChips = (g, max) => g.features.slice(0, max).map((f) => `<span class="chip ${S.features.includes(f) ? 'inc' : ''}" data-feat="${esc(f)}">${esc(f)}</span>`).join('');
   const statusPill = (g) => g.status ? `<span class="pill ${STATUS_CLS[g.status] || ''}" title="Статус у Тіана">${esc(g.status)}</span>` : '';
+  // Компактні позначки мультиплеєра на картці (одиночну гру й геймпад не показуємо — шуму забагато)
+  const modePills = (g) => MODES.filter((m) => m.icon && hasMode(g, m.id))
+    .filter((m) => !(m.id === 'local' && hasMode(g, 'coop') && !(g.categories || []).some((c) => [39, 24].includes(c))))
+    .map((m) => `<span class="pill ${S.modes.includes(m.id) ? 'st-done' : ''}" data-mode="${m.id}" title="${esc(m.name)}" style="cursor:pointer">${m.icon} ${esc(m.short)}</span>`).join('');
+  const steamTagChips = (g, max) => (g.tags || []).slice(0, max).map((id) => `<span class="chip ${S.stags.includes(id) ? 'inc' : ''}" data-stag="${id}" title="${esc(tagTitle(id))}">${esc(tagName(id))}</span>`).join('');
 
   function renderResults() {
     const have = current.filter((g) => g.lib).length;
@@ -317,6 +388,7 @@
           <div class="title">${pos(g)} ${esc(g.name)}</div>
           <div class="meta"><span>${esc(g.genres.join(', '))}</span><span>${esc(g.settings.join(', '))}</span></div>
           <div class="meta">${diffHtml(g.difficulty)}${statusPill(g)}${g.tian_hours ? `<span title="Скільки награв Тіан">Тіан: ${hours(g.tian_hours)}</span>` : ''}</div>
+          ${modePills(g) ? `<div class="meta">${modePills(g)}</div>` : ''}
           ${g.notes ? `<div class="note">${esc(g.notes)}</div>` : ''}
           <div class="tags">${featChips(g, 5)}</div>
         </div>
@@ -347,6 +419,8 @@
           ${g.release ? `<dt>Вихід</dt><dd>${g.release}${g.early_access ? ' · ранній доступ' : ''}${g.coming_soon ? ' · ще не вийшла' : ''}</dd>` : ''}
         </dl>
         <div class="tags">${featChips(g, 50)}</div>
+        ${(g.categories || []).length ? `<dl class="kv"><dt>Режими гри</dt><dd>${MODES.filter((m) => hasMode(g, m.id)).map((m) => esc(m.name)).join(' · ') || '—'}</dd></dl>` : ''}
+        ${(g.tags || []).length ? `<div class="label" style="font-size:11px;color:var(--muted);margin:10px 0 4px">ТЕГИ STEAM</div><div class="tags">${steamTagChips(g, 20)}</div>` : ''}
         <div class="actions">
           ${g.lib ? `<a class="btn primary" href="steam://run/${g.appid}">▶ Запустити / встановити</a>` : ''}
           ${storeUrl ? `<a class="btn ${g.lib ? '' : 'primary'}" href="${esc(storeUrl)}" target="_blank" rel="noopener">Сторінка в магазині</a>` : ''}
@@ -360,6 +434,12 @@
 
   // ---------- Події ----------
   const toggleIn = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  function toggleStag(id, kind) {
+    const was = S.stags.includes(id) ? 'inc' : S.stagExc.includes(id) ? 'exc' : null;
+    S.stags = S.stags.filter((x) => x !== id); S.stagExc = S.stagExc.filter((x) => x !== id);
+    if (was !== kind) (kind === 'inc' ? S.stags : S.stagExc).push(id);
+    render();
+  }
   function toggleFeat(f, kind) {
     const was = S.features.includes(f) ? 'inc' : S.featExc.includes(f) ? 'exc' : null;
     S.features = S.features.filter((x) => x !== f); S.featExc = S.featExc.filter((x) => x !== f);
@@ -370,11 +450,15 @@
   document.addEventListener('click', (e) => {
     const t = e.target;
     let el;
+    if ((el = t.closest('[data-mode]'))) { e.stopPropagation(); S.modes = toggleIn(S.modes, el.dataset.mode); if (el.closest('dialog')) $('dlg').close(); render(); return; }
+    if ((el = t.closest('[data-unstag]'))) { const id = +el.dataset.unstag; S.stags = S.stags.filter((x) => x !== id); S.stagExc = S.stagExc.filter((x) => x !== id); render(); return; }
+    if ((el = t.closest('[data-stagexc]'))) { toggleStag(+el.dataset.stagexc, 'exc'); return; }
+    if ((el = t.closest('[data-stag]'))) { e.stopPropagation(); toggleStag(+el.dataset.stag, 'inc'); if (el.closest('dialog')) $('dlg').close(); return; }
     if ((el = t.closest('[data-unfeat]'))) { const f = el.dataset.unfeat; S.features = S.features.filter((x) => x !== f); S.featExc = S.featExc.filter((x) => x !== f); render(); return; }
     if ((el = t.closest('[data-featexc]'))) { toggleFeat(el.dataset.featexc, 'exc'); return; }
     if ((el = t.closest('[data-feat]'))) { e.stopPropagation(); toggleFeat(el.dataset.feat, 'inc'); if (el.closest('dialog')) $('dlg').close(); return; }
     if ((el = t.closest('[data-multi]'))) { S[el.dataset.multi] = toggleIn(S[el.dataset.multi], el.dataset.v); render(); return; }
-    if ((el = t.closest('[data-clear]'))) { S[el.dataset.clear] = []; if (el.dataset.clear === 'features') S.featExc = []; render(); return; }
+    if ((el = t.closest('[data-clear]'))) { S[el.dataset.clear] = []; if (el.dataset.clear === 'features') S.featExc = []; if (el.dataset.clear === 'stags') S.stagExc = []; render(); return; }
     if ((el = t.closest('[data-coll]'))) {
       const i = +el.dataset.coll;
       S.coll = S.coll === i ? -1 : i;
@@ -395,12 +479,15 @@
   document.addEventListener('contextmenu', (e) => {
     const el = e.target.closest('[data-feat]');
     if (el) { e.preventDefault(); toggleFeat(el.dataset.feat, 'exc'); if (el.closest('dialog')) $('dlg').close(); }
+    const st = e.target.closest('[data-stag]');
+    if (st) { e.preventDefault(); toggleStag(+st.dataset.stag, 'exc'); if (st.closest('dialog')) $('dlg').close(); }
   });
 
   let qTimer;
   $('q').value = S.q;
   $('q').addEventListener('input', (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { S.q = e.target.value.trim(); render(); }, 120); });
   $('featSearch').addEventListener('input', renderSidebar);
+  $('tagSearch').addEventListener('input', renderSidebar);
   const bind = (id, key, ev = 'change', get = (el) => el.value) => $(id).addEventListener(ev, (e) => { S[key] = get(e.target); render(); });
   bind('minRate', 'minRate', 'input', (el) => +el.value);
   bind('diffFrom', 'diffFrom'); bind('diffTo', 'diffTo');
@@ -409,7 +496,7 @@
   bind('yearFrom', 'yearFrom'); bind('yearTo', 'yearTo');
   $('sort').addEventListener('change', (e) => { S.sort = e.target.value; S.dir = DEFAULT_DIR[S.sort]; render(); });
   $('dir').addEventListener('click', () => { S.dir = S.dir === 'asc' ? 'desc' : 'asc'; render(); });
-  $('resetAll').addEventListener('click', () => { S = { ...DEFAULTS, view: S.view }; $('q').value = ''; $('featSearch').value = ''; render(); });
+  $('resetAll').addEventListener('click', () => { S = { ...DEFAULTS, view: S.view }; $('q').value = ''; $('featSearch').value = ''; $('tagSearch').value = ''; render(); });
   $('menuBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
   document.addEventListener('keydown', (e) => {
     if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('q').focus(); }
