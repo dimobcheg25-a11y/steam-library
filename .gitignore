@@ -1,0 +1,11 @@
+# Особисті ключі й токени
+.env
+
+# Згенеровані дані (у кожного свої)
+data.js
+roguelikes.js
+store-cache.json
+tian-sheet*.xlsx
+*.log
+
+__pycache__/

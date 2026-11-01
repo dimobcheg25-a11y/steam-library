@@ -1,0 +1,434 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Рогалики Тіана</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside id="sidebar">
+    <nav class="tabs"><a href="index.html">Моя бібліотека</a><a href="roguelikes.html" class="on">Рогалики Тіана</a></nav>
+    <h1>Таблиця рогаликів</h1>
+    <div class="sub" id="updated"></div>
+
+    <div class="section">
+      <div class="label">Добірки Тіана</div>
+      <div class="presets" id="collections"></div>
+    </div>
+
+    <div class="section">
+      <div class="label">Моя бібліотека</div>
+      <div class="seg" data-key="mine">
+        <button data-v="all">Усі</button>
+        <button data-v="have">Є в мене</button>
+        <button data-v="have-unplayed">Є, не грав</button>
+        <button data-v="played">Грав</button>
+        <button data-v="missing">Немає</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">Жанр <button data-clear="genres">скинути</button></div>
+      <div class="chips-box" id="genres"></div>
+    </div>
+
+    <div class="section">
+      <div class="label">Сеттинг <button data-clear="settings">скинути</button></div>
+      <div class="chips-box scroll" id="settings"></div>
+    </div>
+
+    <div class="section">
+      <div class="label">Особливості <button data-clear="features">скинути</button></div>
+      <div class="selbox" id="selFeat"></div>
+      <div class="seg" data-key="featMode" style="margin-bottom:6px">
+        <button data-v="any" title="Гра має хоча б одну з вибраних">Будь-яка</button>
+        <button data-v="all" title="Гра має всі вибрані">Усі разом</button>
+      </div>
+      <input type="search" id="featSearch" placeholder="Знайти… (кооп, декбилдер, пиксельарт)">
+      <div class="taglist" id="featList"></div>
+      <div class="hint">Особливості записані так, як у таблиці автора (російською). Клік: лише ігри з особливістю. «−»: сховати їх.</div>
+    </div>
+
+    <div class="section">
+      <div class="label">Оцінка Тіана від <span id="minRateVal"></span></div>
+      <input type="range" id="minRate" min="0" max="10" step="1">
+    </div>
+
+    <div class="section">
+      <div class="label">Складність <span id="diffVal"></span></div>
+      <div class="row2">
+        <input type="number" id="diffFrom" min="1" max="10" placeholder="від 1">
+        <input type="number" id="diffTo" min="1" max="10" placeholder="до 10">
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">Статус у Тіана <button data-clear="statuses">скинути</button></div>
+      <div class="chips-box" id="statuses"></div>
+    </div>
+
+    <div class="section">
+      <div class="label">Ціна (для ігор, яких немає)</div>
+      <div class="checks">
+        <label><input type="checkbox" id="onSale"> Лише зі знижкою зараз</label>
+      </div>
+      <input type="number" id="maxPrice" min="0" step="50" placeholder="До … ₴" style="margin-top:6px">
+    </div>
+
+    <div class="section">
+      <div class="label">Рік виходу</div>
+      <div class="row2">
+        <input type="number" id="yearFrom" placeholder="від">
+        <input type="number" id="yearTo" placeholder="до">
+      </div>
+    </div>
+
+    <button class="btn" id="resetAll" style="width:100%">Скинути всі фільтри</button>
+    <div class="hint" style="margin-top:12px">Таблиця Тіана і ціни оновлюються самі щонеділі. Оновити зараз: <code>python import-roguelikes.py</code>.</div>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <button class="btn menu-btn" id="menuBtn">☰ Фільтри</button>
+      <input type="search" class="search" id="q" placeholder="Пошук за назвою, нотатками, особливостями…">
+      <select id="sort" title="Сортування">
+        <option value="collection">За місцем у добірці</option>
+        <option value="rating">За оцінкою Тіана</option>
+        <option value="difficulty">За складністю</option>
+        <option value="tianHours">Скільки награв Тіан</option>
+        <option value="myHours">Скільки награв я</option>
+        <option value="steam">За відгуками Steam</option>
+        <option value="price">За ціною</option>
+        <option value="release">За датою виходу</option>
+        <option value="name">За назвою</option>
+      </select>
+      <button class="btn" id="dir" title="Напрямок сортування">↓</button>
+      <div class="seg" data-key="view" style="flex:0 0 auto">
+        <button data-v="grid">Плитка</button>
+        <button data-v="list">Список</button>
+      </div>
+      <button class="btn primary" id="random">🎲 Що зіграти?</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="results"></div>
+  </main>
+</div>
+
+<dialog id="dlg"></dialog>
+
+<script src="data.js"></script>
+<script src="roguelikes.js"></script>
+<script>
+(() => {
+  const R = window.ROGUELIKES;
+  const $ = (id) => document.getElementById(id);
+  if (!R) {
+    $('results').innerHTML = '<div class="empty">Немає файлу roguelikes.js. Запустіть <code>python import-roguelikes.py</code>.</div>';
+    return;
+  }
+  const LIB = new Map((window.LIBRARY?.games || []).map((g) => [g.appid, g]));
+  const games = R.games;
+  for (const g of games) g.lib = g.appid ? LIB.get(g.appid) || null : null;
+  const COLL = R.collections.filter((c) => c.items.length);
+  const collPos = COLL.map((c) => new Map(c.items.map((k, i) => [k, i])));
+
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const hours = (h) => h >= 100 ? `${Math.round(h)} год` : h >= 1 ? `${(+h).toFixed(1).replace('.0', '')} год` : h > 0 ? `${Math.round(h * 60)} хв` : '';
+  const rateCls = (r) => r >= 8 ? 'r-good' : r >= 6 ? 'r-mid' : 'r-bad';
+  const played = (g) => g.lib && g.lib.playtime_hours > 0;
+  const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c; };
+  const STATUS_CLS = { 'Пройдено': 'st-done', 'Огляд': 'st-done', 'Закинуто': 'st-drop', 'Чекає релізу': 'st-wait', 'У процесі': 'st-wait' };
+
+  // ---------- Стан ----------
+  const DEFAULTS = {
+    q: '', coll: -1, mine: 'all', genres: [], settings: [], features: [], featExc: [], featMode: 'any',
+    statuses: [], minRate: 0, diffFrom: '', diffTo: '', onSale: false, maxPrice: '', yearFrom: '', yearTo: '',
+    sort: 'rating', dir: 'desc', view: 'grid',
+  };
+  let S = { ...DEFAULTS };
+  try { Object.assign(S, JSON.parse(localStorage.getItem('steamlib.rogue') || '{}')); } catch {}
+  if (S.coll >= COLL.length) S.coll = -1;
+  const save = () => { try { localStorage.setItem('steamlib.rogue', JSON.stringify(S)); } catch {} };
+
+  // ---------- Фільтри ----------
+  function pass(g, skip) {
+    if (S.q) {
+      const q = S.q.toLowerCase();
+      if (!(g.name + ' ' + g.notes + ' ' + g.features.join(' ')).toLowerCase().includes(q)) return false;
+    }
+    if (S.coll >= 0 && !collPos[S.coll].has(g.key)) return false;
+    if (S.mine === 'have' && !g.lib) return false;
+    if (S.mine === 'have-unplayed' && !(g.lib && !played(g))) return false;
+    if (S.mine === 'played' && !played(g)) return false;
+    if (S.mine === 'missing' && g.lib) return false;
+    if (skip !== 'genres' && S.genres.length && !S.genres.some((x) => g.genres.includes(x))) return false;
+    if (skip !== 'settings' && S.settings.length && !S.settings.some((x) => g.settings.includes(x))) return false;
+    if (skip !== 'statuses' && S.statuses.length && !S.statuses.includes(g.status)) return false;
+    if (skip !== 'features') {
+      if (S.featExc.some((x) => g.features.includes(x))) return false;
+      if (S.features.length && (S.featMode === 'all'
+        ? !S.features.every((x) => g.features.includes(x))
+        : !S.features.some((x) => g.features.includes(x)))) return false;
+    }
+    if (S.minRate && !(g.rating >= S.minRate)) return false;
+    if (S.diffFrom && !(g.difficulty >= +S.diffFrom)) return false;
+    if (S.diffTo && !(g.difficulty <= +S.diffTo)) return false;
+    if (S.onSale && !(g.discount && !g.lib)) return false;
+    if (S.maxPrice !== '' && !g.lib && !(g.price_uah != null && g.price_uah <= +S.maxPrice)) return false;
+    const y = g.release ? +g.release.slice(0, 4) : null;
+    if (S.yearFrom && !(y >= +S.yearFrom)) return false;
+    if (S.yearTo && !(y <= +S.yearTo)) return false;
+    return true;
+  }
+
+  const num = (v) => (v == null ? -Infinity : v);
+  const SORTERS = {
+    rating: (a, b) => num(a.rating) - num(b.rating) || num(a.steam_pct) - num(b.steam_pct),
+    difficulty: (a, b) => num(a.difficulty) - num(b.difficulty),
+    tianHours: (a, b) => num(a.tian_hours) - num(b.tian_hours),
+    myHours: (a, b) => num(a.lib?.playtime_hours) - num(b.lib?.playtime_hours),
+    steam: (a, b) => num(a.steam_pct) - num(b.steam_pct) || num(a.steam_reviews) - num(b.steam_reviews),
+    price: (a, b) => num(a.lib ? 0 : a.price_uah) - num(b.lib ? 0 : b.price_uah),
+    release: (a, b) => (a.release || '').localeCompare(b.release || ''),
+    name: (a, b) => a.name.localeCompare(b.name, 'uk'),
+    collection: (a, b) => (collPos[S.coll]?.get(b.key) ?? 1e9) - (collPos[S.coll]?.get(a.key) ?? 1e9),
+  };
+  const DEFAULT_DIR = { rating: 'desc', difficulty: 'desc', tianHours: 'desc', myHours: 'desc', steam: 'desc', price: 'asc', release: 'desc', name: 'asc', collection: 'desc' };
+
+  let current = [];
+  function compute() {
+    current = games.filter((g) => pass(g));
+    let key = S.sort, dir = S.dir === 'asc' ? 1 : -1;
+    if (key === 'collection' && S.coll < 0) { key = 'rating'; dir = -1; }
+    current.sort((a, b) => dir * SORTERS[key](a, b) || a.name.localeCompare(b.name, 'uk'));
+  }
+  // Лічильник для кожного значення: скільки ігор буде, якщо вибрати його (з урахуванням інших фільтрів)
+  function counts(field, skip) {
+    const c = {};
+    for (const g of games) if (pass(g, skip)) for (const v of [].concat(g[field])) if (v) c[v] = (c[v] || 0) + 1;
+    return c;
+  }
+  const allValues = (field) => {
+    const c = {};
+    for (const g of games) for (const v of [].concat(g[field])) if (v) c[v] = (c[v] || 0) + 1;
+    return Object.keys(c).sort((a, b) => c[b] - c[a]);
+  };
+  const GENRES = allValues('genres'), SETTINGS = allValues('settings'), STATUSES = allValues('status'), FEATURES = allValues('features');
+
+  // ---------- Рендер бічної панелі ----------
+  function chipGroup(el, values, key, cnt) {
+    $(el).innerHTML = values.map((v) => {
+      const on = S[key].includes(v);
+      const n = cnt[v] || 0;
+      return `<span class="chip ${on ? 'inc' : ''}" data-multi="${key}" data-v="${esc(v)}" style="${!on && !n ? 'opacity:.45' : ''}">${esc(v)} <span class="n">${n}</span></span>`;
+    }).join('');
+  }
+  function renderSidebar() {
+    document.querySelectorAll('.seg[data-key]').forEach((seg) => {
+      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', S[seg.dataset.key] === b.dataset.v));
+    });
+    $('collections').innerHTML = COLL.map((c, i) => `<span class="chip ${S.coll === i ? 'inc' : ''}" data-coll="${i}">${esc(c.name)} <span class="n">${c.items.length}</span></span>`).join('');
+    chipGroup('genres', GENRES, 'genres', counts('genres', 'genres'));
+    chipGroup('settings', SETTINGS, 'settings', counts('settings', 'settings'));
+    chipGroup('statuses', STATUSES, 'statuses', counts('status', 'statuses'));
+
+    const fc = counts('features', 'features');
+    const fq = $('featSearch').value.trim().toLowerCase();
+    let feats = FEATURES.filter((f) => fc[f] || S.features.includes(f) || S.featExc.includes(f));
+    if (fq) feats = feats.filter((f) => f.toLowerCase().includes(fq));
+    feats.sort((a, b) => (fc[b] || 0) - (fc[a] || 0) || a.localeCompare(b));
+    $('featList').innerHTML = feats.map((f) => {
+      const st = S.features.includes(f) ? 'inc' : S.featExc.includes(f) ? 'exc' : '';
+      return `<div class="tagrow ${st}" data-feat="${esc(f)}">
+        <span class="mark">${st === 'inc' ? '✓' : ''}</span><span class="nm"><span>${esc(f)}</span></span>
+        <span class="n">${fc[f] || 0}</span>
+        <button class="tb" data-featexc="${esc(f)}" title="${st === 'exc' ? 'Повернути' : 'Сховати ігри з цією особливістю'}">−</button></div>`;
+    }).join('') || '<div class="tagrow"><span class="n">Нічого не знайдено</span></div>';
+    const sel = [];
+    if (S.features.length) sel.push(`<div class="grp">${S.features.length > 1 ? (S.featMode === 'all' ? 'Мають усі:' : 'Мають хоча б одну:') : 'Має:'} ${S.features.map((f) => `<span class="chip inc" data-unfeat="${esc(f)}">${esc(f)} ✕</span>`).join('')}</div>`);
+    if (S.featExc.length) sel.push(`<div class="grp">Без: ${S.featExc.map((f) => `<span class="chip exc" data-unfeat="${esc(f)}">${esc(f)} ✕</span>`).join('')}</div>`);
+    $('selFeat').innerHTML = sel.join('');
+    document.querySelector('.seg[data-key="featMode"]').style.display = S.features.length > 1 ? '' : 'none';
+
+    $('minRate').value = S.minRate;
+    $('minRateVal').textContent = S.minRate ? `${S.minRate}/10` : 'будь-яка';
+    $('diffFrom').value = S.diffFrom; $('diffTo').value = S.diffTo;
+    $('onSale').checked = S.onSale; $('maxPrice').value = S.maxPrice;
+    $('yearFrom').value = S.yearFrom; $('yearTo').value = S.yearTo;
+    $('sort').value = S.sort;
+    $('sort').querySelector('[value="collection"]').hidden = S.coll < 0;
+    $('dir').textContent = S.dir === 'asc' ? '↑' : '↓';
+  }
+
+  // ---------- Рендер результатів ----------
+  function mineBadge(g) {
+    if (g.lib) {
+      const cls = g.lib.source === 'own' ? 'own' : 'fam';
+      const who = g.lib.source === 'own' ? '' : '👪 ';
+      return `<span class="badge r ${cls}" title="${g.lib.source === 'own' ? 'Є у вашій бібліотеці' : 'Сімейна: ' + esc(g.lib.owners)}">${who}${played(g) ? '✓ ' + hours(g.lib.playtime_hours) : 'є, не грав'}</span>`;
+    }
+    if (g.price) return `<span class="badge r price" title="Немає у вас. Ціна в Steam">${g.discount ? `<span class="disc">-${g.discount}%</span>` : ''}${esc(g.price)}</span>`;
+    if (g.coming_soon) return '<span class="badge r price">ще не вийшла</span>';
+    return '';
+  }
+  function mineText(g) {
+    if (!g.lib) return '<span style="color:var(--muted)">немає</span>';
+    const cls = g.lib.source === 'own' ? 'mine-own' : 'mine-fam';
+    return `<span class="${cls}">${played(g) ? hours(g.lib.playtime_hours) : 'не грав'}</span>${g.lib.source === 'family' ? ` <span style="color:var(--muted)">(👪 ${esc(g.lib.owners)})</span>` : ''}`;
+  }
+  const diffHtml = (d) => d ? `<span class="diff" title="Складність за Тіаном">Складн. ${d}/10 <span class="bar"><i style="width:${d * 10}%"></i></span></span>` : '';
+  const featChips = (g, max) => g.features.slice(0, max).map((f) => `<span class="chip ${S.features.includes(f) ? 'inc' : ''}" data-feat="${esc(f)}">${esc(f)}</span>`).join('');
+  const statusPill = (g) => g.status ? `<span class="pill ${STATUS_CLS[g.status] || ''}" title="Статус у Тіана">${esc(g.status)}</span>` : '';
+
+  function renderResults() {
+    const have = current.filter((g) => g.lib).length;
+    const pl = current.filter(played).length;
+    $('stats').innerHTML = `Показано <b>${current.length}</b> з ${games.length} · є в мене: <b>${have}</b> (грав: <b>${pl}</b>, не грав: <b>${have - pl}</b>) · немає: <b>${current.length - have}</b>`;
+    if (!current.length) { $('results').innerHTML = '<div class="empty">Нічого не знайдено. Спробуйте послабити фільтри.</div>'; return; }
+    const pos = (g) => S.coll >= 0 ? `<span class="pill">#${collPos[S.coll].get(g.key) + 1}</span>` : '';
+    if (S.view === 'list') {
+      const th = (k, l, c = '') => `<th class="${c} ${S.sort === k ? 'sorted' : ''}" data-sort="${k}">${l}${S.sort === k ? (S.dir === 'asc' ? ' ↑' : ' ↓') : ''}</th>`;
+      $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Жанр</th>${th('rating', 'Оцінка', 'num')}${th('difficulty', 'Складн.', 'num')}${th('tianHours', 'Тіан', 'num')}<th>Статус</th>${th('myHours', 'Я', 'num')}${th('price', 'Ціна', 'num')}${th('release', 'Рік', 'num')}</tr></thead><tbody>` +
+        current.map((g) => `<tr class="g" data-key="${esc(g.key)}">
+          <td>${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="">` : ''}</td>
+          <td>${pos(g)} <b>${esc(g.name)}</b><div class="note" style="-webkit-line-clamp:1">${esc(g.notes)}</div></td>
+          <td>${esc(g.genres.join(', '))}</td>
+          <td class="num"><b class="${rateCls(g.rating)}">${g.rating ?? '—'}</b></td>
+          <td class="num">${g.difficulty ?? ''}</td>
+          <td class="num">${g.tian_hours ? hours(g.tian_hours) : ''}</td>
+          <td>${statusPill(g)}</td>
+          <td class="num">${mineText(g)}</td>
+          <td class="num">${g.lib ? '' : g.discount ? `<span class="r-good">-${g.discount}%</span> ${esc(g.price)}` : esc(g.price || '')}</td>
+          <td class="num">${g.release ? g.release.slice(0, 4) : ''}</td>
+        </tr>`).join('') + '</tbody></table>';
+      return;
+    }
+    $('results').innerHTML = '<div class="grid">' + current.map((g) => `
+      <div class="card" data-key="${esc(g.key)}">
+        <div class="cover">
+          <div class="noimg">${esc(g.name)}</div>
+          ${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="" onerror="this.remove()">` : ''}
+          ${g.rating != null ? `<span class="badge l rating" title="Оцінка Тіана">★ ${g.rating}/10</span>` : ''}
+          ${mineBadge(g)}
+        </div>
+        <div class="body">
+          <div class="title">${pos(g)} ${esc(g.name)}</div>
+          <div class="meta"><span>${esc(g.genres.join(', '))}</span><span>${esc(g.settings.join(', '))}</span></div>
+          <div class="meta">${diffHtml(g.difficulty)}${statusPill(g)}${g.tian_hours ? `<span title="Скільки награв Тіан">Тіан: ${hours(g.tian_hours)}</span>` : ''}</div>
+          ${g.notes ? `<div class="note">${esc(g.notes)}</div>` : ''}
+          <div class="tags">${featChips(g, 5)}</div>
+        </div>
+      </div>`).join('') + '</div>';
+  }
+
+  function render() { compute(); renderSidebar(); renderResults(); save(); }
+
+  // ---------- Деталі ----------
+  function openGame(key) {
+    const g = games.find((x) => x.key === key);
+    if (!g) return;
+    const dlg = $('dlg');
+    const storeUrl = g.url || (g.appid ? `https://store.steampowered.com/app/${g.appid}` : '');
+    dlg.innerHTML = `
+      <button class="close" aria-label="Закрити">×</button>
+      ${g.image ? `<div class="dlg-cover"><img src="${esc(g.image)}" alt=""></div>` : ''}
+      <div class="dlg-body">
+        <h2>${esc(g.name)}</h2>
+        <div class="meta">${g.rating != null ? `<b class="${rateCls(g.rating)}">★ ${g.rating}/10 від Тіана</b>` : ''}${statusPill(g)}${g.steam_pct != null ? `<span>Steam: 👍 ${g.steam_pct}% (${g.steam_reviews})</span>` : ''}</div>
+        ${g.notes ? `<p>${esc(g.notes)}</p>` : ''}
+        <dl class="kv">
+          <dt>У мене</dt><dd>${g.lib ? (played(g) ? `грав ${hours(g.lib.playtime_hours)}${g.lib.last_played ? `, востаннє ${g.lib.last_played}` : ''}` : 'є, ще не грав') + (g.lib.source === 'family' ? ` · сімейна (${esc(g.lib.owners)})` : ' · моя') : `немає${g.price ? ` · ${g.discount ? `<span class="r-good">-${g.discount}%</span> ` : ''}${esc(g.price)}` : ''}`}</dd>
+          <dt>Жанр</dt><dd>${esc(g.genres.join(', '))}</dd>
+          <dt>Сеттинг</dt><dd>${esc(g.settings.join(', '))}</dd>
+          ${g.difficulty ? `<dt>Складність</dt><dd>${diffHtml(g.difficulty)}</dd>` : ''}
+          ${g.tian_hours ? `<dt>Тіан награв</dt><dd>${hours(g.tian_hours)}${g.progress != null ? ` · прогрес ${g.progress}%` : ''}${g.tian_played ? ` · ${g.tian_played}` : ''}</dd>` : ''}
+          ${g.release ? `<dt>Вихід</dt><dd>${g.release}${g.early_access ? ' · ранній доступ' : ''}${g.coming_soon ? ' · ще не вийшла' : ''}</dd>` : ''}
+        </dl>
+        <div class="tags">${featChips(g, 50)}</div>
+        <div class="actions">
+          ${g.lib ? `<a class="btn primary" href="steam://run/${g.appid}">▶ Запустити / встановити</a>` : ''}
+          ${storeUrl ? `<a class="btn ${g.lib ? '' : 'primary'}" href="${esc(storeUrl)}" target="_blank" rel="noopener">Сторінка в магазині</a>` : ''}
+          ${g.youtube ? `<a class="btn" href="${esc(g.youtube)}" target="_blank" rel="noopener">▶ Плейлист на YouTube</a>` : ''}
+          ${g.mi_link ? `<a class="btn" href="${esc(g.mi_link)}" target="_blank" rel="noopener">Випуск МІ</a>` : ''}
+          <button class="btn" id="again" ${current.length > 1 ? '' : 'hidden'}>🎲 Інша випадкова</button>
+        </div>
+      </div>`;
+    if (!dlg.open) dlg.showModal();
+  }
+
+  // ---------- Події ----------
+  const toggleIn = (arr, v) => (arr.includes(v) ? arr.filter((x) => x !== v) : [...arr, v]);
+  function toggleFeat(f, kind) {
+    const was = S.features.includes(f) ? 'inc' : S.featExc.includes(f) ? 'exc' : null;
+    S.features = S.features.filter((x) => x !== f); S.featExc = S.featExc.filter((x) => x !== f);
+    if (was !== kind) (kind === 'inc' ? S.features : S.featExc).push(f);
+    render();
+  }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    let el;
+    if ((el = t.closest('[data-unfeat]'))) { const f = el.dataset.unfeat; S.features = S.features.filter((x) => x !== f); S.featExc = S.featExc.filter((x) => x !== f); render(); return; }
+    if ((el = t.closest('[data-featexc]'))) { toggleFeat(el.dataset.featexc, 'exc'); return; }
+    if ((el = t.closest('[data-feat]'))) { e.stopPropagation(); toggleFeat(el.dataset.feat, 'inc'); if (el.closest('dialog')) $('dlg').close(); return; }
+    if ((el = t.closest('[data-multi]'))) { S[el.dataset.multi] = toggleIn(S[el.dataset.multi], el.dataset.v); render(); return; }
+    if ((el = t.closest('[data-clear]'))) { S[el.dataset.clear] = []; if (el.dataset.clear === 'features') S.featExc = []; render(); return; }
+    if ((el = t.closest('[data-coll]'))) {
+      const i = +el.dataset.coll;
+      S.coll = S.coll === i ? -1 : i;
+      if (S.coll >= 0) { S.sort = 'collection'; S.dir = 'desc'; } else if (S.sort === 'collection') { S.sort = 'rating'; S.dir = 'desc'; }
+      render(); return;
+    }
+    if ((el = t.closest('.seg[data-key] button'))) { S[el.closest('.seg').dataset.key] = el.dataset.v; render(); return; }
+    if ((el = t.closest('th[data-sort]'))) {
+      const k = el.dataset.sort;
+      if (S.sort === k) S.dir = S.dir === 'asc' ? 'desc' : 'asc'; else { S.sort = k; S.dir = DEFAULT_DIR[k]; }
+      render(); return;
+    }
+    if ((el = t.closest('[data-key]'))) { openGame(el.dataset.key); return; }
+    if (t.closest('.close')) { $('dlg').close(); return; }
+    if (t.id === 'again') { pickRandom(); return; }
+    if (t === $('dlg')) $('dlg').close();
+  });
+  document.addEventListener('contextmenu', (e) => {
+    const el = e.target.closest('[data-feat]');
+    if (el) { e.preventDefault(); toggleFeat(el.dataset.feat, 'exc'); if (el.closest('dialog')) $('dlg').close(); }
+  });
+
+  let qTimer;
+  $('q').value = S.q;
+  $('q').addEventListener('input', (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { S.q = e.target.value.trim(); render(); }, 120); });
+  $('featSearch').addEventListener('input', renderSidebar);
+  const bind = (id, key, ev = 'change', get = (el) => el.value) => $(id).addEventListener(ev, (e) => { S[key] = get(e.target); render(); });
+  bind('minRate', 'minRate', 'input', (el) => +el.value);
+  bind('diffFrom', 'diffFrom'); bind('diffTo', 'diffTo');
+  bind('onSale', 'onSale', 'change', (el) => el.checked);
+  bind('maxPrice', 'maxPrice');
+  bind('yearFrom', 'yearFrom'); bind('yearTo', 'yearTo');
+  $('sort').addEventListener('change', (e) => { S.sort = e.target.value; S.dir = DEFAULT_DIR[S.sort]; render(); });
+  $('dir').addEventListener('click', () => { S.dir = S.dir === 'asc' ? 'desc' : 'asc'; render(); });
+  $('resetAll').addEventListener('click', () => { S = { ...DEFAULTS, view: S.view }; $('q').value = ''; $('featSearch').value = ''; render(); });
+  $('menuBtn').addEventListener('click', () => $('sidebar').classList.toggle('open'));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('q').focus(); }
+  });
+
+  function pickRandom() {
+    if (!current.length) return;
+    // Частіше випадають ігри з вищою оцінкою Тіана, які в мене є, але я в них не грав
+    const w = current.map((g) => (1 + Math.max(0, (g.rating ?? 5) - 4)) * (g.lib && !played(g) ? 3 : 1));
+    let r = Math.random() * w.reduce((a, b) => a + b, 0), i = 0;
+    while ((r -= w[i]) > 0) i++;
+    openGame(current[Math.min(i, current.length - 1)].key);
+  }
+  $('random').addEventListener('click', pickRandom);
+
+  const libNote = window.LIBRARY ? '' : ' · ⚠ немає data.js, зіставлення з бібліотекою вимкнено';
+  $('updated').textContent = `${games.length} ${plural(games.length, 'гра', 'гри', 'ігор')} · ${R.source} · імпорт ${new Date(R.updated).toLocaleString('uk-UA', { dateStyle: 'medium', timeStyle: 'short' })}${libNote}`;
+  render();
+})();
+</script>
+</body>
+</html>

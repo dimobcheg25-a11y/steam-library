@@ -1,0 +1,507 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Моя бібліотека Steam</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside id="sidebar">
+    <nav class="tabs"><a href="index.html" class="on">Моя бібліотека</a><a href="roguelikes.html">Рогалики Тіана</a></nav>
+    <h1>Моя бібліотека Steam</h1>
+    <div class="sub" id="updated"></div>
+
+    <div class="section">
+      <div class="label">Статус</div>
+      <div class="seg" data-key="played">
+        <button data-v="all">Усі</button>
+        <button data-v="no">Не грав</button>
+        <button data-v="tried">До 2 год</button>
+        <button data-v="yes">Грав</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">Чия гра</div>
+      <div class="seg" data-key="source">
+        <button data-v="all">Усі</button>
+        <button data-v="own">Мої</button>
+        <button data-v="family">Сімейні</button>
+      </div>
+      <select id="owner" style="margin-top:6px"></select>
+    </div>
+
+    <div class="section">
+      <div class="label">Швидкі добірки <button id="clearTags">скинути теги</button></div>
+      <div class="presets" id="presets"></div>
+    </div>
+
+    <div class="section">
+      <div class="label">
+        Теги
+        <button id="tagLang" title="Мова назв тегів">EN / UA</button>
+      </div>
+      <div class="selbox" id="selTags"></div>
+      <div class="seg" data-key="tagMode" style="margin-bottom:6px">
+        <button data-v="any" title="Гра має хоча б один із вибраних тегів">Будь-який</button>
+        <button data-v="all" title="Гра має всі вибрані теги">Усі разом</button>
+      </div>
+      <input type="search" id="tagSearch" placeholder="Знайти тег… (rogue, кооп, cozy)">
+      <div class="taglist" id="taglist"></div>
+      <div class="hint">Клік по тегу: показати лише ігри з ним (ще клік: прибрати). Кнопка «−» або правий клік: сховати ігри з цим тегом.</div>
+    </div>
+
+    <div class="section">
+      <div class="label">Наскільки важливий тег <span id="topNVal"></span></div>
+      <input type="range" id="topN" min="3" max="20" step="1">
+      <div class="hint">Враховувати тег, лише якщо він серед перших N тегів гри. Менше N означає суворіше: «рогалик» буде справді рогаликом, а не грою з дрібним елементом.</div>
+    </div>
+
+    <div class="section">
+      <div class="label">Режим гри</div>
+      <div class="checks" id="cats"></div>
+    </div>
+
+    <div class="section">
+      <div class="label">Відгуки від <span id="minRevVal"></span></div>
+      <input type="range" id="minRev" min="0" max="95" step="5">
+    </div>
+
+    <div class="section">
+      <div class="label">Рік релізу</div>
+      <div class="row2">
+        <input type="number" id="yearFrom" placeholder="від">
+        <input type="number" id="yearTo" placeholder="до">
+      </div>
+      <div class="checks" style="margin-top:6px">
+        <label><input type="checkbox" id="hideEA"> Сховати ранній доступ</label>
+      </div>
+    </div>
+
+    <button class="btn" id="resetAll" style="width:100%">Скинути всі фільтри</button>
+    <div class="hint" style="margin-top:12px">Оновити дані: <code>node fetch-library.mjs</code>, потім перезавантажте сторінку.</div>
+  </aside>
+
+  <main>
+    <div class="toolbar">
+      <button class="btn menu-btn" id="menuBtn">☰ Фільтри</button>
+      <input type="search" class="search" id="q" placeholder="Пошук за назвою або розробником…">
+      <select id="sort" title="Сортування">
+        <option value="relevance">За відповідністю тегам</option>
+        <option value="name">За назвою</option>
+        <option value="playtime">За наіграним часом</option>
+        <option value="lastPlayed">За останнім запуском</option>
+        <option value="review">За відгуками (%)</option>
+        <option value="reviewCount">За популярністю</option>
+        <option value="release">За датою релізу</option>
+      </select>
+      <button class="btn" id="dir" title="Напрямок сортування">↓</button>
+      <div class="seg" data-key="view" style="flex:0 0 auto">
+        <button data-v="grid">Плитка</button>
+        <button data-v="list">Список</button>
+      </div>
+      <button class="btn primary" id="random">🎲 Що зіграти?</button>
+    </div>
+    <div class="stats" id="stats"></div>
+    <div id="results"></div>
+  </main>
+</div>
+
+<dialog id="dlg"></dialog>
+
+<script src="data.js"></script>
+<script>
+(() => {
+  const DATA = window.LIBRARY;
+  if (!DATA) {
+    document.getElementById('results').innerHTML =
+      '<div class="empty">Немає файлу data.js. Запустіть <code>node fetch-library.mjs</code> у папці проєкту.</div>';
+    return;
+  }
+  const games = DATA.games;
+  const TAGS = DATA.tags; // id -> {en, uk}
+
+  // «Розумний» тег: паті-ігри для компанії. У Steam немає одного тегу для цього
+  // (PEAK, наприклад, не має «Party Game»), тож визначаємо за набором ознак.
+  const PARTY_ID = -1;
+  {
+    const byEn = {};
+    for (const [id, t] of Object.entries(TAGS)) byEn[t.en] = +id;
+    const ids = (a) => a.map((x) => byEn[x]).filter(Boolean);
+    const PARTY = ids(['Party Game', 'Party', 'Social Deduction', 'Trivia']);
+    const MP = ids(['Multiplayer', 'Co-op', 'Online Co-Op', 'Local Multiplayer', 'Local Co-Op', 'PvP', 'Online PvP', '4 Player Local']);
+    const FUN = ids(['Funny', 'Comedy', 'Memes']);
+    const NOT = ids(['FPS', 'Looter Shooter', 'City Builder', 'Grand Strategy', 'Massively Multiplayer', 'MMORPG', 'Story Rich']);
+    const MP_CATS = [1, 9, 38, 39, 24, 44, 49, 36, 37]; // мультиплеєр/кооп/PvP за даними магазину
+    const inTop = (g, set, n) => set.some((id) => { const i = g.tags.indexOf(id); return i !== -1 && i < n; });
+    TAGS[PARTY_ID] = { en: 'Party with friends', uk: 'Паті з друзями' };
+    for (const g of DATA.games) {
+      const multi = (g.categories || []).some((c) => MP_CATS.includes(c));
+      const party = inTop(g, PARTY, 15) || (inTop(g, MP, 8) && inTop(g, FUN, 12) && !inTop(g, NOT, 8));
+      if (multi && party) g.tags = [PARTY_ID, ...g.tags];
+    }
+  }
+
+  // Режими гри (Steam category ids)
+  const CATS = [
+    { id: 2, name: 'Для одного гравця' },
+    { id: 9, name: 'Кооператив (будь-який)', any: [9, 38, 39, 48] },
+    { id: 38, name: 'Онлайн-кооператив' },
+    { id: 39, name: 'Кооп на одному ПК', any: [39, 24, 37] },
+    { id: 49, name: 'PvP', any: [49, 36, 37, 47] },
+    { id: 44, name: 'Remote Play Together' },
+    { id: 28, name: 'Повна підтримка геймпада' },
+  ];
+
+  const PRESETS = [
+    { name: '🎉 Паті з друзями', tags: ['Party with friends'] },
+    { name: 'Рогалики', tags: ['Roguelike', 'Roguelite', 'Action Roguelike', 'Roguelike Deckbuilder', 'Traditional Roguelike'] },
+    { name: 'Колодобудування', tags: ['Deckbuilding', 'Card Battler', 'Roguelike Deckbuilder'] },
+    { name: 'Метроїдванії', tags: ['Metroidvania'] },
+    { name: 'Souls-like', tags: ['Souls-like'] },
+    { name: 'Стратегії', tags: ['Strategy', 'Turn-Based Strategy', 'RTS', 'Grand Strategy', '4X'] },
+    { name: 'Тактика', tags: ['Turn-Based Tactics', 'Tactical', 'Tactical RPG'] },
+    { name: 'RPG', tags: ['RPG', 'Action RPG', 'CRPG', 'JRPG', 'Party-Based RPG'] },
+    { name: 'Виживання', tags: ['Survival', 'Open World Survival Craft'] },
+    { name: 'Будівництво', tags: ['City Builder', 'Colony Sim', 'Base Building', 'Automation'] },
+    { name: 'Головоломки', tags: ['Puzzle', 'Logic'] },
+    { name: 'Затишні', tags: ['Cozy', 'Relaxing', 'Wholesome'] },
+    { name: 'Сюжетні', tags: ['Story Rich', 'Narrative', 'Visual Novel'] },
+    { name: 'Горор', tags: ['Horror', 'Psychological Horror', 'Survival Horror'] },
+    { name: 'Платформери', tags: ['Platformer', 'Precision Platformer', '2D Platformer', '3D Platformer'] },
+    { name: 'Шутери', tags: ['Shooter', 'FPS', 'Shoot \'Em Up', 'Bullet Hell'] },
+  ];
+  const tagIdByEn = {};
+  for (const [id, t] of Object.entries(TAGS)) tagIdByEn[t.en] = +id;
+  for (const p of PRESETS) p.ids = p.tags.map((n) => tagIdByEn[n]).filter(Boolean);
+  const presets = PRESETS.filter((p) => p.ids.length);
+
+  const owners = [...new Set(games.filter((g) => g.source === 'family').flatMap((g) => g.owners.split('; ')))].filter(Boolean).sort();
+
+  // ---------- Стан ----------
+  const DEFAULTS = {
+    q: '', played: 'all', source: 'all', owner: '', tagMode: 'any', inc: [], exc: [], topN: 20,
+    cats: [], minRev: 0, yearFrom: '', yearTo: '', hideEA: false,
+    sort: 'name', dir: 'asc', view: 'grid', tagLang: 'en',
+  };
+  let S = { ...DEFAULTS };
+  try { Object.assign(S, JSON.parse(localStorage.getItem('steamlib.state') || '{}')); } catch {}
+  const save = () => { try { localStorage.setItem('steamlib.state', JSON.stringify(S)); } catch {} };
+
+  const $ = (id) => document.getElementById(id);
+  const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const tagName = (id) => { const t = TAGS[id]; return t ? (S.tagLang === 'uk' ? (t.uk || t.en) : t.en) : id; };
+  const tagTitle = (id) => { const t = TAGS[id]; return t ? `${t.en} / ${t.uk || ''}` : ''; };
+  const hours = (h) => h >= 100 ? `${Math.round(h)} год` : h >= 1 ? `${h.toFixed(1).replace('.0', '')} год` : h > 0 ? `${Math.round(h * 60)} хв` : '';
+  const revClass = (p) => p >= 80 ? 'good' : p >= 60 ? 'mid' : 'bad';
+  const plural = (n, a, b, c) => { const m10 = n % 10, m100 = n % 100; return m10 === 1 && m100 !== 11 ? a : m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14) ? b : c; };
+
+  // ---------- Фільтрація ----------
+  function hasTag(g, id) {
+    const i = g.tags.indexOf(id);
+    return i !== -1 && i < S.topN;
+  }
+  function passesNonTag(g) {
+    if (S.q) {
+      const q = S.q.toLowerCase();
+      if (!g.name.toLowerCase().includes(q) && !(g.developers || '').toLowerCase().includes(q)) return false;
+    }
+    if (S.played === 'no' && g.playtime_hours > 0) return false;
+    if (S.played === 'yes' && !(g.playtime_hours > 0)) return false;
+    if (S.played === 'tried' && !(g.playtime_hours > 0 && g.playtime_hours < 2)) return false;
+    if (S.source !== 'all' && g.source !== S.source) return false;
+    if (S.owner && !g.owners.split('; ').includes(S.owner)) return false;
+    for (const cid of S.cats) {
+      const c = CATS.find((x) => x.id === cid);
+      const ids = c?.any || [cid];
+      if (!ids.some((i) => (g.categories || []).includes(i))) return false;
+    }
+    if (S.minRev > 0 && !(g.review_pct >= S.minRev)) return false;
+    const y = g.release ? +g.release.slice(0, 4) : null;
+    if (S.yearFrom && !(y >= +S.yearFrom)) return false;
+    if (S.yearTo && !(y <= +S.yearTo)) return false;
+    if (S.hideEA && g.early_access) return false;
+    return true;
+  }
+  function passesTags(g) {
+    for (const id of S.exc) if (hasTag(g, id)) return false;
+    if (!S.inc.length) return true;
+    return S.tagMode === 'all' ? S.inc.every((id) => hasTag(g, id)) : S.inc.some((id) => hasTag(g, id));
+  }
+  // Відповідність: вищі позиції вибраних тегів дають більший бал
+  function relevance(g) {
+    let s = 0;
+    for (const id of S.inc) { const i = g.tags.indexOf(id); if (i !== -1 && i < S.topN) s += 20 - i; }
+    return s;
+  }
+
+  const SORTERS = {
+    name: (a, b) => a.name.localeCompare(b.name, 'uk'),
+    playtime: (a, b) => (a.playtime_hours || 0) - (b.playtime_hours || 0),
+    lastPlayed: (a, b) => (a.last_played || '').localeCompare(b.last_played || ''),
+    review: (a, b) => (a.review_pct ?? -1) - (b.review_pct ?? -1) || (a.review_count || 0) - (b.review_count || 0),
+    reviewCount: (a, b) => (a.review_count || 0) - (b.review_count || 0),
+    release: (a, b) => (a.release || '').localeCompare(b.release || ''),
+    relevance: (a, b) => relevance(a) - relevance(b) || (a.review_pct ?? -1) - (b.review_pct ?? -1),
+  };
+  const DEFAULT_DIR = { name: 'asc', playtime: 'desc', lastPlayed: 'desc', review: 'desc', reviewCount: 'desc', release: 'desc', relevance: 'desc' };
+
+  let current = [];
+  function compute() {
+    const base = games.filter(passesNonTag);
+    current = base.filter(passesTags);
+    let key = S.sort;
+    let dir = S.dir === 'asc' ? 1 : -1;
+    if (key === 'relevance' && !S.inc.length) { key = 'name'; dir = 1; }
+    const cmp = SORTERS[key];
+    current.sort((a, b) => dir * cmp(a, b) || a.name.localeCompare(b.name, 'uk'));
+    // Лічильники тегів у межах решти фільтрів, щоб було видно, скільки ігор дасть кожен тег
+    const counts = {};
+    for (const g of base) {
+      if (!S.exc.every((id) => !hasTag(g, id))) continue;
+      for (let i = 0; i < Math.min(g.tags.length, S.topN); i++) counts[g.tags[i]] = (counts[g.tags[i]] || 0) + 1;
+    }
+    return counts;
+  }
+
+  // ---------- Рендер ----------
+  function renderSidebar(counts) {
+    document.querySelectorAll('.seg[data-key]').forEach((seg) => {
+      seg.querySelectorAll('button').forEach((b) => b.classList.toggle('on', S[seg.dataset.key] === b.dataset.v));
+    });
+    $('owner').innerHTML = `<option value="">Будь-який власник</option>` +
+      owners.map((o) => `<option ${o === S.owner ? 'selected' : ''}>${esc(o)}</option>`).join('');
+    $('owner').style.display = owners.length ? '' : 'none';
+
+    $('presets').innerHTML = presets.map((p, i) => {
+      const on = p.ids.length === S.inc.length && p.ids.every((id) => S.inc.includes(id));
+      return `<span class="chip ${on ? 'inc' : ''}" data-preset="${i}">${esc(p.name)}</span>`;
+    }).join('');
+
+    const tq = $('tagSearch').value.trim().toLowerCase();
+    const selected = [...S.inc, ...S.exc];
+    let ids = Object.keys(TAGS).map(Number).filter((id) => counts[id] || selected.includes(id));
+    if (tq) ids = ids.filter((id) => (TAGS[id].en + ' ' + (TAGS[id].uk || '')).toLowerCase().includes(tq));
+    ids.sort((a, b) => (counts[b] || 0) - (counts[a] || 0) || tagName(a).localeCompare(tagName(b)));
+    $('taglist').innerHTML = ids.slice(0, 300).map((id) => {
+      const st = S.inc.includes(id) ? 'inc' : S.exc.includes(id) ? 'exc' : '';
+      const t = TAGS[id];
+      const sub = S.tagLang === 'uk' && t.uk && t.uk !== t.en ? `<small>${esc(t.en)}</small>` : '';
+      return `<div class="tagrow ${st}" data-tag="${id}" title="${st === 'inc' ? 'Увімкнено, клік прибере' : st === 'exc' ? 'Виключено' : 'Клік: показати лише ігри з цим тегом'}">
+        <span class="mark">${st === 'inc' ? '✓' : ''}</span>
+        <span class="nm"><span>${esc(tagName(id))}</span>${sub}</span>
+        <span class="n">${counts[id] || 0}</span>
+        <button class="tb" data-exc="${id}" title="${st === 'exc' ? 'Повернути ігри з цим тегом' : 'Сховати ігри з цим тегом'}">−</button>
+      </div>`;
+    }).join('') || '<div class="tagrow"><span class="n">Нічого не знайдено</span></div>';
+
+    const sel = [];
+    if (S.inc.length) sel.push(`<div class="grp">${S.inc.length > 1 ? (S.tagMode === 'all' ? 'Мають усі:' : 'Мають хоча б один:') : 'Має тег:'} ${S.inc.map((id) => `<span class="chip inc" data-untag="${id}" title="Прибрати">${esc(tagName(id))} ✕</span>`).join('')}</div>`);
+    if (S.exc.length) sel.push(`<div class="grp">Без тегів: ${S.exc.map((id) => `<span class="chip exc" data-untag="${id}" title="Прибрати">${esc(tagName(id))} ✕</span>`).join('')}</div>`);
+    $('selTags').innerHTML = sel.join('');
+    document.querySelector('.seg[data-key="tagMode"]').style.display = S.inc.length > 1 ? '' : 'none';
+
+    $('topN').value = S.topN;
+    $('topNVal').textContent = S.topN >= 20 ? 'усі теги' : `топ-${S.topN}`;
+    $('cats').innerHTML = CATS.map((c) => `<label><input type="checkbox" data-cat="${c.id}" ${S.cats.includes(c.id) ? 'checked' : ''}> ${esc(c.name)}</label>`).join('');
+    $('minRev').value = S.minRev;
+    $('minRevVal').textContent = S.minRev ? `${S.minRev}%` : 'будь-які';
+    $('yearFrom').value = S.yearFrom; $('yearTo').value = S.yearTo;
+    $('hideEA').checked = S.hideEA;
+    $('tagLang').textContent = S.tagLang === 'en' ? 'Мова тегів: EN' : 'Мова тегів: UA';
+  }
+
+  function tagChips(g, max) {
+    const shown = g.tags.slice(0, max);
+    // Вибрані теги показуємо завжди, навіть якщо вони не в перших max
+    for (const id of S.inc) if (!shown.includes(id) && hasTag(g, id)) shown.push(id);
+    return shown.map((id) => {
+      const cls = S.inc.includes(id) ? 'inc' : S.exc.includes(id) ? 'exc' : '';
+      return `<span class="chip ${cls}" data-tag="${id}" title="${esc(tagTitle(id))}">${esc(tagName(id))}</span>`;
+    }).join('');
+  }
+  function reviewHtml(g) {
+    return g.review_pct != null ? `<span class="rev ${revClass(g.review_pct)}" title="${esc(g.review_label || '')}, ${g.review_count} відгуків">👍 ${g.review_pct}%</span>` : '';
+  }
+
+  function renderResults() {
+    const played = current.filter((g) => g.playtime_hours > 0).length;
+    const af = [
+      ...S.inc.map((id) => `<span class="chip inc" data-untag="${id}" title="Прибрати">${esc(tagName(id))} ✕</span>`),
+      ...S.exc.map((id) => `<span class="chip exc" data-untag="${id}" title="Прибрати">без ${esc(tagName(id))} ✕</span>`),
+    ].join('');
+    $('stats').innerHTML = `Показано <b>${current.length}</b> з ${games.length} · не грав: <b>${current.length - played}</b> · грав: <b>${played}</b>` +
+      (af ? ` · <span class="active-filters">${af}</span>` : '');
+
+    $('sort').value = S.sort;
+    $('dir').textContent = S.dir === 'asc' ? '↑' : '↓';
+    if (!current.length) {
+      $('results').innerHTML = '<div class="empty">Нічого не знайдено. Спробуйте послабити фільтри.</div>';
+      return;
+    }
+    if (S.view === 'list') {
+      const th = (key, label, cls = '') => `<th class="${cls} ${S.sort === key ? 'sorted' : ''}" data-sort="${key}">${label}${S.sort === key ? (S.dir === 'asc' ? ' ↑' : ' ↓') : ''}</th>`;
+      $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Теги</th>${th('playtime', 'Наіграно', 'num')}${th('lastPlayed', 'Останній запуск', 'num')}${th('review', 'Відгуки', 'num')}${th('release', 'Реліз', 'num')}<th>Чия</th></tr></thead><tbody>` +
+        current.map((g) => `<tr class="g" data-app="${g.appid}">
+          <td>${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="">` : ''}</td>
+          <td><b>${esc(g.name)}</b>${g.early_access ? ' <span class="n" style="color:var(--muted)">(ранній доступ)</span>' : ''}</td>
+          <td><div class="tags">${tagChips(g, 4)}</div></td>
+          <td class="num">${hours(g.playtime_hours) || '<span style="color:var(--accent)">не грав</span>'}</td>
+          <td class="num">${g.last_played || ''}</td>
+          <td class="num">${reviewHtml(g)}</td>
+          <td class="num">${g.release ? g.release.slice(0, 4) : ''}</td>
+          <td>${g.source === 'own' ? 'моя' : esc(g.owners)}</td>
+        </tr>`).join('') + '</tbody></table>';
+    } else {
+      $('results').innerHTML = '<div class="grid">' + current.map((g) => `
+        <div class="card" data-app="${g.appid}">
+          <div class="cover">
+            <div class="noimg">${esc(g.name)}</div>
+            ${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="" onerror="this.remove()">` : ''}
+            ${g.playtime_hours > 0 ? `<span class="badge l">${hours(g.playtime_hours)}</span>` : '<span class="badge l unplayed">не грав</span>'}
+            ${g.source === 'family' ? `<span class="badge r" title="Сімейна бібліотека">👪 ${esc(g.owners.split('; ')[0])}</span>` : ''}
+          </div>
+          <div class="body">
+            <div class="title">${esc(g.name)}</div>
+            <div class="meta">${reviewHtml(g)}${g.release ? `<span>${g.release.slice(0, 4)}</span>` : ''}${g.early_access ? '<span>ранній доступ</span>' : ''}</div>
+            <div class="tags">${tagChips(g, 5)}</div>
+          </div>
+        </div>`).join('') + '</div>';
+    }
+  }
+
+  function render() {
+    const counts = compute();
+    renderSidebar(counts);
+    renderResults();
+    save();
+  }
+
+  // ---------- Деталі ----------
+  function openGame(appid) {
+    const g = games.find((x) => x.appid === appid);
+    if (!g) return;
+    const dlg = $('dlg');
+    dlg.innerHTML = `
+      <button class="close" aria-label="Закрити">×</button>
+      ${g.image ? `<div class="dlg-cover"><img src="${esc(g.image)}" alt=""></div>` : ''}
+      <div class="dlg-body">
+        <h2>${esc(g.name)}</h2>
+        <div class="meta">${reviewHtml(g)}${g.review_label ? `<span>${esc(g.review_label)} · ${g.review_count} відгуків</span>` : ''}</div>
+        ${g.description ? `<p>${esc(g.description)}</p>` : ''}
+        <dl class="kv">
+          <dt>Наіграно</dt><dd>${hours(g.playtime_hours) || 'ще не грав'}</dd>
+          ${g.last_played ? `<dt>Останній запуск</dt><dd>${g.last_played}</dd>` : ''}
+          <dt>Чия гра</dt><dd>${g.source === 'own' ? 'моя' : `сімейна (${esc(g.owners)})`}</dd>
+          ${g.developers ? `<dt>Розробник</dt><dd>${esc(g.developers)}</dd>` : ''}
+          ${g.release ? `<dt>Реліз</dt><dd>${g.release}${g.early_access ? ' · ранній доступ' : ''}</dd>` : ''}
+        </dl>
+        <div class="tags">${tagChips(g, 20)}</div>
+        <div class="actions">
+          <a class="btn primary" href="steam://run/${g.appid}">▶ Запустити / встановити</a>
+          <a class="btn" href="steam://nav/games/details/${g.appid}">У бібліотеці Steam</a>
+          <a class="btn" href="https://store.steampowered.com/app/${g.appid}" target="_blank" rel="noopener">Сторінка в магазині</a>
+          <button class="btn" id="again" ${current.length > 1 ? '' : 'hidden'}>🎲 Інша випадкова</button>
+        </div>
+      </div>`;
+    if (!dlg.open) dlg.showModal();
+  }
+
+  // ---------- Події ----------
+  // kind: 'inc' — показати лише з тегом, 'exc' — сховати з тегом. Повторна дія того ж типу знімає тег.
+  function toggleTag(id, kind) {
+    const was = S.inc.includes(id) ? 'inc' : S.exc.includes(id) ? 'exc' : null;
+    S.inc = S.inc.filter((x) => x !== id);
+    S.exc = S.exc.filter((x) => x !== id);
+    if (was !== kind) S[kind].push(id);
+    if (S.inc.length && S.sort === 'name' && !S._sortTouched) { S.sort = 'relevance'; S.dir = 'desc'; }
+    render();
+  }
+  function untag(id) { S.inc = S.inc.filter((x) => x !== id); S.exc = S.exc.filter((x) => x !== id); render(); }
+
+  document.addEventListener('click', (e) => {
+    const t = e.target;
+    const untagEl = t.closest('[data-untag]');
+    if (untagEl) { untag(+untagEl.dataset.untag); return; }
+    const excBtn = t.closest('[data-exc]');
+    if (excBtn) { toggleTag(+excBtn.dataset.exc, 'exc'); return; }
+    const tagEl = t.closest('[data-tag]');
+    if (tagEl) {
+      e.stopPropagation();
+      toggleTag(+tagEl.dataset.tag, 'inc');
+      if (tagEl.closest('dialog')) $('dlg').close();
+      return;
+    }
+    const segBtn = t.closest('.seg[data-key] button');
+    if (segBtn) { S[segBtn.closest('.seg').dataset.key] = segBtn.dataset.v; render(); return; }
+    const pr = t.closest('[data-preset]');
+    if (pr) {
+      const p = presets[+pr.dataset.preset];
+      const on = p.ids.length === S.inc.length && p.ids.every((id) => S.inc.includes(id));
+      S.inc = on ? [] : [...p.ids];
+      S.exc = S.exc.filter((x) => !p.ids.includes(x));
+      S.tagMode = 'any';
+      if (!on) { S.sort = 'relevance'; S.dir = 'desc'; }
+      render(); return;
+    }
+    const th = t.closest('th[data-sort]');
+    if (th) {
+      const k = th.dataset.sort;
+      if (S.sort === k) S.dir = S.dir === 'asc' ? 'desc' : 'asc'; else { S.sort = k; S.dir = DEFAULT_DIR[k]; }
+      S._sortTouched = true; render(); return;
+    }
+    const item = t.closest('[data-app]');
+    if (item) { openGame(+item.dataset.app); return; }
+    if (t.closest('.close')) { $('dlg').close(); return; }
+    if (t.id === 'again') { pickRandom(); return; }
+    if (t === $('dlg')) $('dlg').close(); // клік по фону
+  });
+  document.addEventListener('contextmenu', (e) => {
+    const tagEl = e.target.closest('[data-tag]');
+    if (tagEl) { e.preventDefault(); toggleTag(+tagEl.dataset.tag, 'exc'); if (tagEl.closest('dialog')) $('dlg').close(); }
+  });
+
+  let qTimer;
+  $('q').value = S.q;
+  $('q').addEventListener('input', (e) => { clearTimeout(qTimer); qTimer = setTimeout(() => { S.q = e.target.value.trim(); render(); }, 120); });
+  $('tagSearch').addEventListener('input', () => renderSidebar(compute()));
+  $('owner').addEventListener('change', (e) => { S.owner = e.target.value; render(); });
+  $('topN').addEventListener('input', (e) => { S.topN = +e.target.value; render(); });
+  $('minRev').addEventListener('input', (e) => { S.minRev = +e.target.value; render(); });
+  $('yearFrom').addEventListener('change', (e) => { S.yearFrom = e.target.value; render(); });
+  $('yearTo').addEventListener('change', (e) => { S.yearTo = e.target.value; render(); });
+  $('hideEA').addEventListener('change', (e) => { S.hideEA = e.target.checked; render(); });
+  $('cats').addEventListener('change', (e) => {
+    const id = +e.target.dataset.cat;
+    S.cats = e.target.checked ? [...S.cats, id] : S.cats.filter((x) => x !== id);
+    render();
+  });
+  $('sort').addEventListener('change', (e) => { S.sort = e.target.value; S.dir = DEFAULT_DIR[S.sort]; S._sortTouched = true; render(); });
+  $('dir').addEventListener('click', () => { S.dir = S.dir === 'asc' ? 'desc' : 'asc'; render(); });
+  $('tagLang').addEventListener('click', () => { S.tagLang = S.tagLang === 'en' ? 'uk' : 'en'; render(); });
+  $('clearTags').addEventListener('click', () => { S.inc = []; S.exc = []; render(); });
+  $('resetAll').addEventListener('click', () => { S = { ...DEFAULTS, view: S.view, tagLang: S.tagLang }; $('q').value = ''; $('tagSearch').value = ''; render(); });
+  $('menuBtn').addEventListener('click', (e) => { e.stopPropagation(); $('sidebar').classList.toggle('open'); });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === '/' && document.activeElement.tagName !== 'INPUT') { e.preventDefault(); $('q').focus(); }
+  });
+
+  function pickRandom() {
+    if (!current.length) return;
+    // Невідіграні ігри з кращими відгуками випадають частіше
+    const w = current.map((g) => (g.playtime_hours > 0 ? 1 : 2) * (1 + Math.max(0, (g.review_pct ?? 60) - 50) / 25));
+    let r = Math.random() * w.reduce((a, b) => a + b, 0);
+    let i = 0;
+    while ((r -= w[i]) > 0) i++;
+    openGame(current[Math.min(i, current.length - 1)].appid);
+  }
+  $('random').addEventListener('click', pickRandom);
+
+  $('updated').textContent = `${games.length} ${plural(games.length, 'гра', 'гри', 'ігор')} · оновлено ${new Date(DATA.updated).toLocaleString('uk-UA', { dateStyle: 'medium', timeStyle: 'short' })}`;
+  render();
+})();
+</script>
+</body>
+</html>
