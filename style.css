@@ -186,7 +186,7 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .diff .bar { width: 50px; height: 5px; border-radius: 3px; background: var(--panel-2); overflow: hidden; display: inline-block; }
 .diff .bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--good), var(--mid), var(--bad)); background-size: 50px 100%; }
 .note { color: var(--muted); font-size: 12px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
-.pill { font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
+.pill { display: inline-block; white-space: nowrap; font-size: 11px; padding: 1px 7px; border-radius: 6px; background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); }
 .pill.st-done { color: var(--good); border-color: currentColor; }
 .pill.st-drop { color: var(--bad); border-color: currentColor; }
 .pill.st-wait { color: var(--mid); border-color: currentColor; }
