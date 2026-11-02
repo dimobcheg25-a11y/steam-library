@@ -43,12 +43,22 @@ python import-roguelikes.py     # таблиця Тіана + ціни → rogue
 ```powershell
 $dir      = (Resolve-Path .).Path
 $action   = New-ScheduledTaskAction -Execute "$dir\update-prices.cmd" -WorkingDirectory $dir
-$trigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At 12:00
+$trigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Thursday -At 21:00
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
 Register-ScheduledTask -TaskName "SteamLibrary - discounts" -Action $action -Trigger $trigger -Settings $settings
 ```
 
-Щонеділі о 12:00 завантажуватиметься свіжа таблиця Тіана й ціни. Журнал запусків пишеться в `update-prices.log`. Щоб вимкнути автооновлення: `Unregister-ScheduledTask -TaskName "SteamLibrary - discounts"`.
+Щопонеділка й щочетверга о 21:00 завантажуватиметься свіжа таблиця Тіана й ціни. Steam запускає тижневі знижки в понеділок, а великі розпродажі й фестивалі здебільшого в четвер, обидва рази о 10:00 за тихоокеанським часом (20:00 за Києвом). Журнал запусків пишеться в `update-prices.log`. Щоб вимкнути автооновлення: `Unregister-ScheduledTask -TaskName "SteamLibrary - discounts"`.
+
+## Знижки в Discord (необов'язково)
+
+`post-to-discord.mjs` публікує одним повідомленням до 10 рогаликів зі знижкою, які Тіан або ви оцінили на 7 і вище. Першими йдуть ігри з найбільшою знижкою.
+
+1. У Discord відкрийте налаштування каналу → «Інтеграції» → «Вебхуки» → «Новий вебхук» і скопіюйте URL.
+2. Впишіть його в `.env`: `DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/...`. ⚠️ Хто має цей URL, той може писати в канал.
+3. Перевірте список без надсилання: `node post-to-discord.mjs --dry-run`. Надіслати: `node post-to-discord.mjs`.
+
+Якщо налаштоване автооновлення, `update-prices.cmd` сам надсилає повідомлення після кожного оновлення цін.
 
 ## Файли
 
@@ -57,7 +67,8 @@ Register-ScheduledTask -TaskName "SteamLibrary - discounts" -Action $action -Tri
 | `index.html`, `roguelikes.html`, `style.css` | сайт |
 | `fetch-library.mjs` | завантажує бібліотеку, теги й відгуки (Steam Web API) |
 | `import-roguelikes.py` | завантажує таблицю Тіана й ціни |
-| `update-prices.cmd` | обгортка для Планувальника завдань |
+| `post-to-discord.mjs` | публікує топ-10 знижок на рогалики в Discord |
+| `update-prices.cmd` | обгортка для Планувальника завдань: оновлює ціни й публікує в Discord |
 | `my-ratings.js` | ваші оцінки рогаликів; пише сторінка `roguelikes.html` (Chrome/Edge), не в git |
 | `.env` | ваші ключі, **не потрапляє в git** |
 | `data.js`, `roguelikes.js`, `store-cache.json`, `tian-sheet.xlsx` | згенеровані дані, теж не потрапляють у git |
