@@ -4,6 +4,8 @@
 // Дані: roguelikes.js (ціни й знижки з import-roguelikes.py), my-ratings.js.
 // Нотатки Тіана (російською) перекладаються через Google Translate і кешуються в notes-uk.json,
 // переклад там можна виправити вручну: він не зміниться, доки Тіан не змінить нотатку.
+// Одна гра не публікується двічі за календарний тиждень (пн–нд): надіслані appid
+// записуються в discord-posted.json і пропускаються до наступного понеділка.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
 
@@ -42,8 +44,18 @@ const { MY_RATINGS } = loadWindowFile('my-ratings.js', false);
 
 const myRatings = MY_RATINGS?.ratings || {};
 
+// ---- Ігри, вже надіслані цього тижня ----
+const POSTED_FILE = here('discord-posted.json');
+function weekStart(d = new Date()) {
+  const m = new Date(d.getFullYear(), d.getMonth(), d.getDate() - ((d.getDay() + 6) % 7));
+  return `${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}-${String(m.getDate()).padStart(2, '0')}`;
+}
+const thisWeek = weekStart();
+const postedFile = existsSync(POSTED_FILE) ? JSON.parse(readFileSync(POSTED_FILE, 'utf8')) : {};
+const postedThisWeek = new Set(postedFile.week === thisWeek ? postedFile.appids : []);
+
 const picks = ROGUELIKES.games
-  .filter((g) => g.appid && g.discount > 0)
+  .filter((g) => g.appid && g.discount > 0 && !postedThisWeek.has(g.appid))
   .map((g) => ({ ...g, mine: myRatings[g.appid] ?? null }))
   .filter((g) => (g.rating ?? 0) >= MIN_RATING || (g.mine ?? 0) >= MIN_RATING)
   .sort(
@@ -114,9 +126,10 @@ if (cacheChanged) writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 1) + '\n
 const updated = ROGUELIKES.updated?.replace('T', ' ') ?? '?';
 const content = picks.length
   ? `🔥 **Топ-${picks.length} знижок на рогалики**\n-# ціни Steam (UAH) станом на ${updated}`
-  : `😴 Зараз немає знижок на рогалики з оцінкою ${MIN_RATING}+ (ціни станом на ${updated}).`;
+  : `😴 Цього тижня більше немає нових знижок на рогалики з оцінкою ${MIN_RATING}+ (ціни станом на ${updated}).`;
 
 if (DRY_RUN) {
+  if (postedThisWeek.size) console.log(`(пропущено вже надіслані цього тижня: ${postedThisWeek.size})`);
   console.log(content.replace(/\*\*|-# /g, ''));
   for (const e of embeds) console.log(`\n${e.title}\n${e.description.replace(/\*\*|~~/g, '')}`);
   process.exit(0);
@@ -142,4 +155,8 @@ if (!res.ok) {
   console.error(`Discord відповів ${res.status}: ${await res.text()}`);
   process.exit(1);
 }
+writeFileSync(
+  POSTED_FILE,
+  JSON.stringify({ week: thisWeek, appids: [...postedThisWeek, ...picks.map((g) => g.appid)] }) + '\n',
+);
 console.log(`Надіслано в Discord: ${picks.length} ігор`);
