@@ -4,7 +4,7 @@
 // Дані: roguelikes.js (ціни й знижки з import-roguelikes.py), my-ratings.js.
 // Нотатки Тіана (російською) перекладаються через Google Translate і кешуються в notes-uk.json,
 // переклад там можна виправити вручну: він не зміниться, доки Тіан не змінить нотатку.
-// Одна гра не публікується повторно 7 днів: дати показу записуються в discord-posted.json.
+// Гра ніколи не потрапляє у два пости поспіль: склад останнього поста зберігається в discord-posted.json.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
 
@@ -43,21 +43,14 @@ const { MY_RATINGS } = loadWindowFile('my-ratings.js', false);
 
 const myRatings = MY_RATINGS?.ratings || {};
 
-// ---- Ігри, надіслані за останні 7 днів ----
-// discord-posted.json: { "<appid>": "YYYY-MM-DD" } — дата останнього показу гри.
+// ---- Ігри з попереднього поста ----
+// discord-posted.json: { "date": "...", "appids": [...] } — що було в останньому надісланому пості.
 const POSTED_FILE = here('discord-posted.json');
-const REPEAT_DAYS = 7;
-const dayNum = (ymd) => Math.round(Date.parse(`${ymd}T00:00:00Z`) / 86400000);
-const today = new Date().toLocaleDateString('sv'); // локальна дата у форматі YYYY-MM-DD
-let postedLog = existsSync(POSTED_FILE) ? JSON.parse(readFileSync(POSTED_FILE, 'utf8')) : {};
-if (postedLog.week) postedLog = {}; // старий формат {week, appids} — ігноруємо
-for (const [id, d] of Object.entries(postedLog)) {
-  if (dayNum(today) - dayNum(d) >= REPEAT_DAYS) delete postedLog[id];
-}
-const postedThisWeek = new Set(Object.keys(postedLog).map(Number));
+const lastPost = existsSync(POSTED_FILE) ? JSON.parse(readFileSync(POSTED_FILE, 'utf8')) : {};
+const postedLast = new Set(Array.isArray(lastPost.appids) ? lastPost.appids : []);
 
 const picks = ROGUELIKES.games
-  .filter((g) => g.appid && g.discount > 0 && !postedThisWeek.has(g.appid))
+  .filter((g) => g.appid && g.discount > 0 && !postedLast.has(g.appid))
   .map((g) => ({ ...g, mine: myRatings[g.appid] ?? null }))
   .filter((g) => (g.rating ?? 0) >= MIN_RATING || (g.mine ?? 0) >= MIN_RATING)
   .sort(
@@ -128,10 +121,10 @@ if (cacheChanged) writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 1) + '\n
 const updated = ROGUELIKES.updated?.replace('T', ' ') ?? '?';
 const content = picks.length
   ? `🔥 **Топ-${picks.length} знижок на рогалики**\n-# ціни Steam (UAH) станом на ${updated}`
-  : `😴 Немає нових (не показаних за 7 днів) знижок на рогалики з оцінкою ${MIN_RATING}+ (ціни станом на ${updated}).`;
+  : `😴 Немає нових (не з минулого поста) знижок на рогалики з оцінкою ${MIN_RATING}+ (ціни станом на ${updated}).`;
 
 if (DRY_RUN) {
-  if (postedThisWeek.size) console.log(`(пропущено показані за останні 7 днів: ${postedThisWeek.size})`);
+  if (postedLast.size) console.log(`(пропущено ігри з минулого поста: ${postedLast.size})`);
   console.log(content.replace(/\*\*|-# /g, ''));
   for (const e of embeds) console.log(`\n${e.title}\n${e.description.replace(/\*\*|~~/g, '')}`);
   process.exit(0);
@@ -159,6 +152,6 @@ if (!res.ok) {
 }
 writeFileSync(
   POSTED_FILE,
-  JSON.stringify({ ...postedLog, ...Object.fromEntries(picks.map((g) => [g.appid, today])) }, null, 1) + '\n',
+  JSON.stringify({ date: new Date().toISOString(), appids: picks.map((g) => g.appid) }) + '\n',
 );
 console.log(`Надіслано в Discord: ${picks.length} ігор`);
