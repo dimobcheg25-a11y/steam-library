@@ -43,12 +43,12 @@ python import-roguelikes.py     # таблиця Тіана + ціни → rogue
 ```powershell
 $dir      = (Resolve-Path .).Path
 $action   = New-ScheduledTaskAction -Execute "$dir\update-prices.cmd" -WorkingDirectory $dir
-$trigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Thursday -At 21:00
+$trigger  = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Monday, Thursday -At 19:00
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -ExecutionTimeLimit (New-TimeSpan -Minutes 15)
 Register-ScheduledTask -TaskName "SteamLibrary - discounts" -Action $action -Trigger $trigger -Settings $settings
 ```
 
-Щопонеділка й щочетверга о 21:00 завантажуватиметься свіжа таблиця Тіана й ціни. Steam запускає тижневі знижки в понеділок, а великі розпродажі й фестивалі здебільшого в четвер, обидва рази о 10:00 за тихоокеанським часом (20:00 за Києвом). Журнал запусків пишеться в `update-prices.log`. Щоб вимкнути автооновлення: `Unregister-ScheduledTask -TaskName "SteamLibrary - discounts"`.
+Щопонеділка й щочетверга о 19:00 завантажуватиметься свіжа таблиця Тіана й ціни. Steam запускає тижневі знижки в понеділок, а великі розпродажі й фестивалі здебільшого в четвер, обидва рази о 10:00 за тихоокеанським часом (20:00 за Києвом). Журнал запусків пишеться в `update-prices.log`. Щоб вимкнути автооновлення: `Unregister-ScheduledTask -TaskName "SteamLibrary - discounts"`.
 
 ## Знижки в Discord (необов'язково)
 
