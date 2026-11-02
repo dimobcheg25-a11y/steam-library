@@ -1,8 +1,10 @@
 // Публікує в Discord топ-10 рогаликів зі знижкою, які я або Тіан оцінили на 7+.
 // Запуск: node post-to-discord.mjs            → надсилає в канал (DISCORD_WEBHOOK_URL у .env)
 //         node post-to-discord.mjs --dry-run  → лише показує список, нічого не надсилає
-// Дані: roguelikes.js (ціни й знижки з import-roguelikes.py), my-ratings.js, data.js (необов'язково).
-import { existsSync, readFileSync } from 'node:fs';
+// Дані: roguelikes.js (ціни й знижки з import-roguelikes.py), my-ratings.js.
+// Нотатки Тіана (російською) перекладаються через Google Translate і кешуються в notes-uk.json,
+// переклад там можна виправити вручну: він не зміниться, доки Тіан не змінить нотатку.
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
 
 const MIN_RATING = 7;
@@ -37,10 +39,8 @@ function loadWindowFile(file, required) {
 
 const { ROGUELIKES } = loadWindowFile('roguelikes.js', true);
 const { MY_RATINGS } = loadWindowFile('my-ratings.js', false);
-const { LIBRARY } = loadWindowFile('data.js', false);
 
 const myRatings = MY_RATINGS?.ratings || {};
-const owned = new Map((LIBRARY?.games || []).map((g) => [g.appid, g]));
 
 const picks = ROGUELIKES.games
   .filter((g) => g.appid && g.discount > 0)
@@ -54,47 +54,66 @@ const picks = ROGUELIKES.games
   )
   .slice(0, LIMIT);
 
-const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ','));
-const uah = (n) => `${fmt(n)}₴`;
-
-function ratingLine(g) {
-  const parts = [];
-  if (g.rating != null) parts.push(`Тіан **${fmt(g.rating)}**`);
-  if (g.mine != null) parts.push(`я **${fmt(g.mine)}**`);
-  return parts.join(' · ');
-}
-
-function ownerNote(g) {
-  const lib = owned.get(g.appid);
-  if (!lib) return '';
-  return lib.source === 'family' ? `\n👪 Є в сімейній бібліотеці (${lib.owners})` : '\n✅ Вже є в мене';
-}
-
 function colorFor(discount) {
   if (discount >= 75) return 0xe74c3c;
   if (discount >= 50) return 0xe67e22;
   return 0x2ecc71;
 }
 
-const embeds = picks.map((g, i) => {
+const fmt = (n) => (Number.isInteger(n) ? String(n) : n.toFixed(1).replace('.', ','));
+const uah = (n) => `${fmt(n)}₴`;
+
+// ---- Переклад нотаток Тіана ru → uk з кешем ----
+const CACHE_FILE = here('notes-uk.json');
+const cache = existsSync(CACHE_FILE) ? JSON.parse(readFileSync(CACHE_FILE, 'utf8')) : {};
+let cacheChanged = false;
+
+async function translate(text) {
+  const url =
+    'https://translate.googleapis.com/translate_a/single?client=gtx&sl=ru&tl=uk&dt=t&q=' +
+    encodeURIComponent(text);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`Google Translate ${res.status}`);
+  const data = await res.json();
+  return data[0].map((part) => part[0]).join('').trim();
+}
+
+async function noteUk(g) {
+  const ru = g.notes?.trim();
+  if (!ru) return '';
+  const hit = cache[g.appid];
+  if (hit?.ru === ru) return hit.uk;
+  try {
+    const uk = await translate(ru);
+    cache[g.appid] = { name: g.name, ru, uk };
+    cacheChanged = true;
+    return uk;
+  } catch (e) {
+    console.error(`Не вдалося перекласти нотатку до «${g.name}»: ${e.message}`);
+    return '';
+  }
+}
+
+const embeds = [];
+for (const [i, g] of picks.entries()) {
   const price = g.price_orig_uah
     ? `~~${uah(g.price_orig_uah)}~~ → **${uah(g.price_uah)}**`
     : `**${g.price}**`;
-  const extra = [g.genres?.join(', '), g.difficulty != null ? `складність ${fmt(g.difficulty)}/10` : '']
-    .filter(Boolean)
-    .join(' · ');
-  return {
+  const genre = g.genres?.length ? `🎮 ${g.genres.join(', ')}` : '';
+  const note = await noteUk(g);
+  embeds.push({
     title: `${i + 1}. ${g.name} — −${g.discount}%`,
     url: g.url,
     color: colorFor(g.discount),
-    description: `${price}\n⭐ ${ratingLine(g)}${extra ? `\n${extra}` : ''}${ownerNote(g)}`,
+    description: [price, genre, note].filter(Boolean).join('\n'),
     ...(g.image ? { thumbnail: { url: g.image } } : {}),
-  };
-});
+  });
+}
+if (cacheChanged) writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 1) + '\n');
 
 const updated = ROGUELIKES.updated?.replace('T', ' ') ?? '?';
 const content = picks.length
-  ? `🔥 **Топ-${picks.length} знижок на рогалики** (оцінка Тіана або моя ${MIN_RATING}+)\n-# ціни Steam (UAH) станом на ${updated}`
+  ? `🔥 **Топ-${picks.length} знижок на рогалики**\n-# ціни Steam (UAH) станом на ${updated}`
   : `😴 Зараз немає знижок на рогалики з оцінкою ${MIN_RATING}+ (ціни станом на ${updated}).`;
 
 if (DRY_RUN) {
