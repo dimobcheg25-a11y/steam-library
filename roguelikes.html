@@ -66,8 +66,12 @@
     </div>
 
     <div class="section">
-      <div class="label">Оцінка Тіана від <span id="minRateVal"></span></div>
-      <input type="range" id="minRate" min="0" max="10" step="1">
+      <div class="label">Оцінка Тіана <span id="minRateVal"></span></div>
+      <div class="dual" id="rateDual">
+        <div class="track"><div class="fill" id="rateFill"></div></div>
+        <input type="range" id="minRate" min="0" max="10" step="1" aria-label="Оцінка від">
+        <input type="range" id="maxRate" min="0" max="10" step="1" aria-label="Оцінка до">
+      </div>
     </div>
 
     <div class="section">
@@ -179,7 +183,7 @@
   const DEFAULTS = {
     modes: [], stags: [], stagExc: [],
     q: '', coll: -1, mine: 'all', genres: [], settings: [], features: [], featExc: [], featMode: 'any',
-    statuses: [], minRate: 0, diffFrom: '', diffTo: '', onSale: false, maxPrice: '', yearFrom: '', yearTo: '',
+    statuses: [], minRate: 0, maxRate: 10, diffFrom: '', diffTo: '', onSale: false, maxPrice: '', yearFrom: '', yearTo: '',
     sort: 'rating', dir: 'desc', view: 'grid',
   };
   let S = { ...DEFAULTS };
@@ -213,6 +217,7 @@
       if (S.stags.length && !S.stags.every((id) => hasTag(g, id))) return false;
     }
     if (S.minRate && !(g.rating >= S.minRate)) return false;
+    if (S.maxRate < 10 && !(g.rating != null && g.rating <= S.maxRate)) return false;
     if (S.diffFrom && !(g.difficulty >= +S.diffFrom)) return false;
     if (S.diffTo && !(g.difficulty <= +S.diffTo)) return false;
     if (S.onSale && !(g.discount && !g.lib)) return false;
@@ -323,8 +328,13 @@
     if (S.stagExc.length) tsel.push(`<div class="grp">Без: ${S.stagExc.map((id) => `<span class="chip exc" data-unstag="${id}">${esc(tagName(id))} ✕</span>`).join('')}</div>`);
     $('selTags').innerHTML = tsel.join('');
 
-    $('minRate').value = S.minRate;
-    $('minRateVal').textContent = S.minRate ? `${S.minRate}/10` : 'будь-яка';
+    $('minRate').value = S.minRate; $('maxRate').value = S.maxRate;
+    $('minRateVal').textContent = !S.minRate && S.maxRate >= 10 ? 'будь-яка'
+      : S.minRate === S.maxRate ? `рівно ${S.minRate}/10` : `від ${S.minRate} до ${S.maxRate}/10`;
+    $('rateFill').style.left = S.minRate * 10 + '%';
+    $('rateFill').style.right = (10 - S.maxRate) * 10 + '%';
+    // Коли повзунки зійшлися, верхнім робимо той, що ще може рухатись
+    $('minRate').style.zIndex = S.minRate >= 9 ? 3 : 1;
     $('diffFrom').value = S.diffFrom; $('diffTo').value = S.diffTo;
     $('onSale').checked = S.onSale; $('maxPrice').value = S.maxPrice;
     $('yearFrom').value = S.yearFrom; $('yearTo').value = S.yearTo;
@@ -366,7 +376,7 @@
     const pos = (g) => S.coll >= 0 ? `<span class="pill">#${collPos[S.coll].get(g.key) + 1}</span>` : '';
     if (S.view === 'list') {
       const th = (k, l, c = '') => `<th class="${c} ${S.sort === k ? 'sorted' : ''}" data-sort="${k}">${l}${S.sort === k ? (S.dir === 'asc' ? ' ↑' : ' ↓') : ''}</th>`;
-      $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Жанр</th>${th('rating', 'Оцінка', 'num')}${th('difficulty', 'Складн.', 'num')}${th('tianHours', 'Тіан', 'num')}<th>Статус</th>${th('myHours', 'Я', 'num')}${th('price', 'Ціна', 'num')}${th('release', 'Рік', 'num')}</tr></thead><tbody>` +
+      $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Жанр</th>${th('rating', 'Оцінка', 'num')}${th('difficulty', 'Складн.', 'num')}${th('tianHours', 'Тіан', 'num')}<th>Статус</th>${th('myHours', 'Я', 'num')}${th('price', 'Ціна', 'num')}${th('discount', 'Знижка', 'num')}${th('saving', 'Економія', 'num')}${th('release', 'Рік', 'num')}</tr></thead><tbody>` +
         current.map((g) => `<tr class="g" data-key="${esc(g.key)}">
           <td>${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="">` : ''}</td>
           <td>${pos(g)} <b>${esc(g.name)}</b><div class="note" style="-webkit-line-clamp:1">${esc(g.notes)}</div></td>
@@ -376,7 +386,9 @@
           <td class="num">${g.tian_hours ? hours(g.tian_hours) : ''}</td>
           <td>${statusPill(g)}</td>
           <td class="num">${mineText(g)}</td>
-          <td class="num">${g.lib ? '' : g.discount ? `<span class="r-good">-${g.discount}%</span> ${esc(g.price)}` : esc(g.price || '')}</td>
+          <td class="num">${g.lib ? '' : esc(g.price || '')}</td>
+          <td class="num">${!g.lib && g.discount ? `<span class="r-good">-${g.discount}%</span>` : ''}</td>
+          <td class="num">${!g.lib && g.saving_uah ? fmtUah(g.saving_uah) : ''}</td>
           <td class="num">${g.release ? g.release.slice(0, 4) : ''}</td>
         </tr>`).join('') + '</tbody></table>';
       return;
@@ -494,7 +506,8 @@
   $('featSearch').addEventListener('input', renderSidebar);
   $('tagSearch').addEventListener('input', renderSidebar);
   const bind = (id, key, ev = 'change', get = (el) => el.value) => $(id).addEventListener(ev, (e) => { S[key] = get(e.target); render(); });
-  bind('minRate', 'minRate', 'input', (el) => +el.value);
+  $('minRate').addEventListener('input', (e) => { S.minRate = Math.min(+e.target.value, S.maxRate); render(); });
+  $('maxRate').addEventListener('input', (e) => { S.maxRate = Math.max(+e.target.value, S.minRate); render(); });
   bind('diffFrom', 'diffFrom'); bind('diffTo', 'diffTo');
   bind('onSale', 'onSale', 'change', (el) => el.checked);
   bind('maxPrice', 'maxPrice');
