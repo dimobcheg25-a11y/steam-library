@@ -75,6 +75,23 @@
     </div>
 
     <div class="section">
+      <div class="label">Моя оцінка <span id="myRateVal"></span></div>
+      <div class="seg" data-key="myHas" style="margin-bottom:8px">
+        <button data-v="all">Усі</button>
+        <button data-v="rated">Оцінені</button>
+        <button data-v="unrated">Без оцінки</button>
+      </div>
+      <div class="dual">
+        <div class="track"><div class="fill" id="myFill"></div></div>
+        <input type="range" id="myMin" min="1" max="10" step="1" aria-label="Моя оцінка від">
+        <input type="range" id="myMax" min="1" max="10" step="1" aria-label="Моя оцінка до">
+      </div>
+      <div class="hint">Оцінки ставите в колонці «Моя» (вигляд «Список») або в картці гри. Зберігаються в цьому браузері.
+        <button class="linkbtn" id="myExport">Зберегти у файл</button> · <button class="linkbtn" id="myImport">Завантажити з файлу</button></div>
+      <input type="file" id="myImportFile" accept=".json,application/json" hidden>
+    </div>
+
+    <div class="section">
       <div class="label">Складність <span id="diffVal"></span></div>
       <div class="row2">
         <input type="number" id="diffFrom" min="1" max="10" placeholder="від 1">
@@ -114,6 +131,7 @@
       <select id="sort" title="Сортування">
         <option value="collection">За місцем у добірці</option>
         <option value="rating">За оцінкою Тіана</option>
+        <option value="myRating">За моєю оцінкою</option>
         <option value="difficulty">За складністю</option>
         <option value="tianHours">Скільки награв Тіан</option>
         <option value="myHours">Скільки награв я</option>
@@ -183,13 +201,22 @@
   const DEFAULTS = {
     modes: [], stags: [], stagExc: [],
     q: '', coll: -1, mine: 'all', genres: [], settings: [], features: [], featExc: [], featMode: 'any',
-    statuses: [], minRate: 0, maxRate: 10, diffFrom: '', diffTo: '', onSale: false, maxPrice: '', yearFrom: '', yearTo: '',
+    statuses: [], minRate: 0, maxRate: 10, myHas: 'all', myMin: 1, myMax: 10, diffFrom: '', diffTo: '', onSale: false, maxPrice: '', yearFrom: '', yearTo: '',
     sort: 'rating', dir: 'desc', view: 'grid',
   };
   let S = { ...DEFAULTS };
   try { Object.assign(S, JSON.parse(localStorage.getItem('steamlib.rogue') || '{}')); } catch {}
   if (S.coll >= COLL.length) S.coll = -1;
   const save = () => { try { localStorage.setItem('steamlib.rogue', JSON.stringify(S)); } catch {} };
+
+  // ---------- Мої оцінки (окремо від стану фільтрів, щоб «Скинути все» їх не чіпало) ----------
+  const MY_KEY = 'steamlib.rogue.myRatings';
+  let MY = {};
+  try { MY = JSON.parse(localStorage.getItem(MY_KEY) || '{}') || {}; } catch {}
+  const saveMy = () => { try { localStorage.setItem(MY_KEY, JSON.stringify(MY)); } catch {} };
+  const myRate = (g) => MY[g.key] ?? null;
+  const myRateSelect = (g) => `<select class="myrate ${myRate(g) != null ? rateCls(myRate(g)) : ''}" data-myrate="${esc(g.key)}" title="Моя оцінка">
+      <option value="">—</option>${[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${myRate(g) === n ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
 
   // ---------- Фільтри ----------
   function pass(g, skip) {
@@ -218,6 +245,10 @@
     }
     if (S.minRate && !(g.rating >= S.minRate)) return false;
     if (S.maxRate < 10 && !(g.rating != null && g.rating <= S.maxRate)) return false;
+    const mr = myRate(g);
+    if (S.myHas === 'rated' && mr == null) return false;
+    if (S.myHas === 'unrated' && mr != null) return false;
+    if ((S.myMin > 1 || S.myMax < 10) && !(mr != null && mr >= S.myMin && mr <= S.myMax)) return false;
     if (S.diffFrom && !(g.difficulty >= +S.diffFrom)) return false;
     if (S.diffTo && !(g.difficulty <= +S.diffTo)) return false;
     if (S.onSale && !(g.discount && !g.lib)) return false;
@@ -232,6 +263,7 @@
   const num = (v) => (v == null ? -Infinity : v);
   const SORTERS = {
     rating: (a, b) => num(a.rating) - num(b.rating) || num(a.steam_pct) - num(b.steam_pct),
+    myRating: (a, b) => num(myRate(a)) - num(myRate(b)) || num(a.rating) - num(b.rating),
     difficulty: (a, b) => num(a.difficulty) - num(b.difficulty),
     tianHours: (a, b) => num(a.tian_hours) - num(b.tian_hours),
     myHours: (a, b) => num(a.lib?.playtime_hours) - num(b.lib?.playtime_hours),
@@ -243,7 +275,7 @@
     name: (a, b) => a.name.localeCompare(b.name, 'uk'),
     collection: (a, b) => (collPos[S.coll]?.get(b.key) ?? 1e9) - (collPos[S.coll]?.get(a.key) ?? 1e9),
   };
-  const DEFAULT_DIR = { rating: 'desc', difficulty: 'desc', tianHours: 'desc', myHours: 'desc', steam: 'desc', price: 'asc', discount: 'desc', saving: 'desc', release: 'desc', name: 'asc', collection: 'desc' };
+  const DEFAULT_DIR = { rating: 'desc', myRating: 'desc', difficulty: 'desc', tianHours: 'desc', myHours: 'desc', steam: 'desc', price: 'asc', discount: 'desc', saving: 'desc', release: 'desc', name: 'asc', collection: 'desc' };
 
   let current = [];
   function compute() {
@@ -335,6 +367,12 @@
     $('rateFill').style.right = (10 - S.maxRate) * 10 + '%';
     // Коли повзунки зійшлися, верхнім робимо той, що ще може рухатись
     $('minRate').style.zIndex = S.minRate >= 9 ? 3 : 1;
+    const myFiltered = S.myMin > 1 || S.myMax < 10;
+    $('myMin').value = S.myMin; $('myMax').value = S.myMax;
+    $('myRateVal').textContent = !myFiltered ? '' : S.myMin === S.myMax ? `рівно ${S.myMin}/10` : `від ${S.myMin} до ${S.myMax}/10`;
+    $('myFill').style.left = (S.myMin - 1) / 9 * 100 + '%';
+    $('myFill').style.right = (10 - S.myMax) / 9 * 100 + '%';
+    $('myMin').style.zIndex = S.myMin >= 9 ? 3 : 1;
     $('diffFrom').value = S.diffFrom; $('diffTo').value = S.diffTo;
     $('onSale').checked = S.onSale; $('maxPrice').value = S.maxPrice;
     $('yearFrom').value = S.yearFrom; $('yearTo').value = S.yearTo;
@@ -376,12 +414,13 @@
     const pos = (g) => S.coll >= 0 ? `<span class="pill">#${collPos[S.coll].get(g.key) + 1}</span>` : '';
     if (S.view === 'list') {
       const th = (k, l, c = '') => `<th class="${c} ${S.sort === k ? 'sorted' : ''}" data-sort="${k}">${l}${S.sort === k ? (S.dir === 'asc' ? ' ↑' : ' ↓') : ''}</th>`;
-      $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Жанр</th>${th('rating', 'Оцінка', 'num')}${th('difficulty', 'Складн.', 'num')}${th('tianHours', 'Тіан', 'num')}<th>Статус</th>${th('myHours', 'Я', 'num')}${th('price', 'Ціна', 'num')}${th('discount', 'Знижка', 'num')}${th('saving', 'Економія', 'num')}${th('release', 'Рік', 'num')}</tr></thead><tbody>` +
+      $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Жанр</th>${th('rating', 'Тіан ★', 'num')}${th('myRating', 'Моя', 'num')}${th('difficulty', 'Складн.', 'num')}${th('tianHours', 'Тіан', 'num')}<th>Статус</th>${th('myHours', 'Я', 'num')}${th('price', 'Ціна', 'num')}${th('discount', 'Знижка', 'num')}${th('saving', 'Економія', 'num')}${th('release', 'Рік', 'num')}</tr></thead><tbody>` +
         current.map((g) => `<tr class="g" data-key="${esc(g.key)}">
           <td>${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="">` : ''}</td>
           <td>${pos(g)} <b>${esc(g.name)}</b><div class="note" style="-webkit-line-clamp:1">${esc(g.notes)}</div></td>
           <td>${esc(g.genres.join(', '))}</td>
           <td class="num"><b class="${rateCls(g.rating)}">${g.rating ?? '—'}</b></td>
+          <td class="num">${myRateSelect(g)}</td>
           <td class="num">${g.difficulty ?? ''}</td>
           <td class="num">${g.tian_hours ? hours(g.tian_hours) : ''}</td>
           <td>${statusPill(g)}</td>
@@ -398,7 +437,7 @@
         <div class="cover">
           <div class="noimg">${esc(g.name)}</div>
           ${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="" onerror="this.remove()">` : ''}
-          ${g.rating != null ? `<span class="badge l rating" title="Оцінка Тіана">★ ${g.rating}/10</span>` : ''}
+          ${g.rating != null || myRate(g) != null ? `<span class="badge l rating">${g.rating != null ? `<span title="Оцінка Тіана">★ ${g.rating}/10</span>` : ''}${myRate(g) != null ? `<span title="Моя оцінка"> · моя ${myRate(g)}</span>` : ''}</span>` : ''}
           ${mineBadge(g)}
         </div>
         <div class="body">
@@ -425,7 +464,7 @@
       ${g.image ? `<div class="dlg-cover"><img src="${esc(g.image)}" alt=""></div>` : ''}
       <div class="dlg-body">
         <h2>${esc(g.name)}</h2>
-        <div class="meta">${g.rating != null ? `<b class="${rateCls(g.rating)}">★ ${g.rating}/10 від Тіана</b>` : ''}${statusPill(g)}${g.steam_pct != null ? `<span>Steam: 👍 ${g.steam_pct}% (${g.steam_reviews})</span>` : ''}</div>
+        <div class="meta">${g.rating != null ? `<b class="${rateCls(g.rating)}">★ ${g.rating}/10 від Тіана</b>` : ''}<span>Моя оцінка: ${myRateSelect(g)}</span>${statusPill(g)}${g.steam_pct != null ? `<span>Steam: 👍 ${g.steam_pct}% (${g.steam_reviews})</span>` : ''}</div>
         ${g.notes ? `<p>${esc(g.notes)}</p>` : ''}
         <dl class="kv">
           <dt>У мене</dt><dd>${g.lib ? (played(g) ? `грав ${hours(g.lib.playtime_hours)}${g.lib.last_played ? `, востаннє ${g.lib.last_played}` : ''}` : 'є, ще не грав') + (g.lib.source === 'family' ? ` · сімейна (${esc(g.lib.owners)})` : ' · моя') : `немає${g.price ? ` · ${g.discount ? `<span class="r-good">-${g.discount}%</span> ` : ''}${esc(g.price)}${g.saving_uah ? ` <span style="opacity:.65">(було ${fmtUah(g.price_orig_uah)}, економія ${fmtUah(g.saving_uah)})</span>` : ''}` : ''}`}</dd>
@@ -467,6 +506,7 @@
   document.addEventListener('click', (e) => {
     const t = e.target;
     let el;
+    if (t.closest('select.myrate')) return;
     if ((el = t.closest('[data-mode]'))) { e.stopPropagation(); S.modes = toggleIn(S.modes, el.dataset.mode); if (el.closest('dialog')) $('dlg').close(); render(); return; }
     if ((el = t.closest('[data-unstag]'))) { const id = +el.dataset.unstag; S.stags = S.stags.filter((x) => x !== id); S.stagExc = S.stagExc.filter((x) => x !== id); render(); return; }
     if ((el = t.closest('[data-stagexc]'))) { toggleStag(+el.dataset.stagexc, 'exc'); return; }
@@ -506,6 +546,32 @@
   $('featSearch').addEventListener('input', renderSidebar);
   $('tagSearch').addEventListener('input', renderSidebar);
   const bind = (id, key, ev = 'change', get = (el) => el.value) => $(id).addEventListener(ev, (e) => { S[key] = get(e.target); render(); });
+  $('myMin').addEventListener('input', (e) => { S.myMin = Math.min(+e.target.value, S.myMax); render(); });
+  $('myMax').addEventListener('input', (e) => { S.myMax = Math.max(+e.target.value, S.myMin); render(); });
+  document.addEventListener('change', (e) => {
+    const el = e.target.closest('select.myrate');
+    if (!el) return;
+    const k = el.dataset.myrate;
+    if (el.value === '') delete MY[k]; else MY[k] = +el.value;
+    saveMy(); render();
+    if ($('dlg').open) openGame(k);
+  });
+  $('myExport').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(MY, null, 1)], { type: 'application/json' }));
+    a.download = `my-roguelike-ratings-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('myImport').addEventListener('click', () => $('myImportFile').click());
+  $('myImportFile').addEventListener('change', async (e) => {
+    const f = e.target.files[0]; e.target.value = '';
+    if (!f) return;
+    try {
+      const data = JSON.parse(await f.text());
+      for (const [k, v] of Object.entries(data)) if (Number.isInteger(v) && v >= 1 && v <= 10) MY[k] = v;
+      saveMy(); render();
+    } catch { alert('Не вдалося прочитати файл з оцінками'); }
+  });
   $('minRate').addEventListener('input', (e) => { S.minRate = Math.min(+e.target.value, S.maxRate); render(); });
   $('maxRate').addEventListener('input', (e) => { S.maxRate = Math.max(+e.target.value, S.minRate); render(); });
   bind('diffFrom', 'diffFrom'); bind('diffTo', 'diffTo');
