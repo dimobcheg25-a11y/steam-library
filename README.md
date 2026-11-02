@@ -58,5 +58,6 @@ Register-ScheduledTask -TaskName "SteamLibrary - discounts" -Action $action -Tri
 | `fetch-library.mjs` | завантажує бібліотеку, теги й відгуки (Steam Web API) |
 | `import-roguelikes.py` | завантажує таблицю Тіана й ціни |
 | `update-prices.cmd` | обгортка для Планувальника завдань |
+| `my-ratings.js` | ваші оцінки рогаликів; пише сторінка `roguelikes.html` (Chrome/Edge), не в git |
 | `.env` | ваші ключі, **не потрапляє в git** |
 | `data.js`, `roguelikes.js`, `store-cache.json`, `tian-sheet.xlsx` | згенеровані дані, теж не потрапляють у git |

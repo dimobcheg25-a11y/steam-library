@@ -86,9 +86,10 @@
         <input type="range" id="myMin" min="1" max="10" step="1" aria-label="Моя оцінка від">
         <input type="range" id="myMax" min="1" max="10" step="1" aria-label="Моя оцінка до">
       </div>
-      <div class="hint">Оцінки ставите в колонці «Моя» (вигляд «Список») або в картці гри. Зберігаються в цьому браузері.
-        <button class="linkbtn" id="myExport">Зберегти у файл</button> · <button class="linkbtn" id="myImport">Завантажити з файлу</button></div>
-      <input type="file" id="myImportFile" accept=".json,application/json" hidden>
+      <div class="hint">Оцінки ставите в колонці «Моя» (вигляд «Список») або в картці гри.</div>
+      <div class="hint" id="myStore"></div>
+      <div class="hint"><button class="linkbtn" id="myExport">Скачати my-ratings.js</button> · <button class="linkbtn" id="myImport">Завантажити з файлу</button></div>
+      <input type="file" id="myImportFile" accept=".js,.json" hidden>
     </div>
 
     <div class="section">
@@ -158,6 +159,7 @@
 
 <script src="data.js"></script>
 <script src="roguelikes.js"></script>
+<script src="my-ratings.js"></script>
 <script>
 (() => {
   const R = window.ROGUELIKES;
@@ -209,11 +211,80 @@
   if (S.coll >= COLL.length) S.coll = -1;
   const save = () => { try { localStorage.setItem('steamlib.rogue', JSON.stringify(S)); } catch {} };
 
-  // ---------- Мої оцінки (окремо від стану фільтрів, щоб «Скинути все» їх не чіпало) ----------
-  const MY_KEY = 'steamlib.rogue.myRatings';
-  let MY = {};
-  try { MY = JSON.parse(localStorage.getItem(MY_KEY) || '{}') || {}; } catch {}
-  const saveMy = () => { try { localStorage.setItem(MY_KEY, JSON.stringify(MY)); } catch {} };
+  // ---------- Мої оцінки ----------
+  // Головне сховище: файл my-ratings.js у папці сайту (читається звичайним <script>, тож переживає очищення браузера).
+  // Записує його сторінка через File System Access API (Chrome/Edge) після того, як ви дасте доступ до папки.
+  // localStorage лише запасна копія на випадок, якщо запис у файл не вдався.
+  const MY_KEY = 'steamlib.rogue.myRatings2';
+  const validRatings = (o) => Object.fromEntries(Object.entries(o || {}).filter(([, v]) => Number.isInteger(v) && v >= 1 && v <= 10));
+  const fileData = window.MY_RATINGS && typeof window.MY_RATINGS === 'object' ? window.MY_RATINGS : null;
+  let localData = null;
+  try { localData = JSON.parse(localStorage.getItem(MY_KEY) || 'null'); } catch {}
+  // Перенос оцінок зі старого формату (просто {key: оцінка} у localStorage)
+  if (!localData) try {
+    const old = JSON.parse(localStorage.getItem('steamlib.rogue.myRatings') || 'null');
+    if (old && Object.keys(old).length) localData = { updated: new Date().toISOString(), ratings: old };
+  } catch {}
+  const pick = [fileData, localData].filter(Boolean).sort((a, b) => (b.updated || '').localeCompare(a.updated || ''))[0];
+  let MY = validRatings(pick?.ratings);
+  let myUpdated = pick?.updated || '';
+  let fileStale = !!(localData && (!fileData || (localData.updated || '') > (fileData.updated || '')));
+
+  const FS_OK = 'showDirectoryPicker' in window;
+  let dirHandle = null, myStatus = '', writing = Promise.resolve();
+  const idb = (mode, fn) => new Promise((res, rej) => {
+    const r = indexedDB.open('steamlib', 1);
+    r.onupgradeneeded = () => r.result.createObjectStore('kv');
+    r.onerror = () => rej(r.error);
+    r.onsuccess = () => { const tx = r.result.transaction('kv', mode); const q = fn(tx.objectStore('kv')); tx.oncomplete = () => res(q?.result); tx.onerror = () => rej(tx.error); };
+  });
+  const myFileText = () => '// Мої оцінки рогаликів. Пише сторінка roguelikes.html, вручну не редагуйте.\n'
+    + 'window.MY_RATINGS = ' + JSON.stringify({ updated: myUpdated, ratings: MY }, null, 1) + ';\n';
+  function renderMyStore() {
+    const el = $('myStore');
+    if (!el) return;
+    if (!FS_OK) { el.innerHTML = '⚠ Цей браузер не вміє писати у файл. Оцінки збережено лише в браузері: після змін натисніть «Скачати my-ratings.js» і покладіть файл у папку сайту (замість старого).'; return; }
+    if (myStatus === 'ok') { el.innerHTML = '💾 Зберігається у файл <code>my-ratings.js</code> у папці сайту.'; return; }
+    if (myStatus === 'error') { el.innerHTML = '⚠ Не вдалося записати файл. <button class="linkbtn" data-myconnect>Вибрати папку ще раз</button>'; return; }
+    if (dirHandle && !fileStale) { el.innerHTML = '💾 Оцінки у файлі <code>my-ratings.js</code>. Дозвіл на запис браузер попросить при наступній зміні.'; return; }
+    if (dirHandle) { el.innerHTML = '⚠ Є незбережені у файл зміни. <button class="linkbtn" data-myconnect>Дозволити запис</button>'; return; }
+    el.innerHTML = `⚠ ${fileStale ? 'Є незбережені у файл зміни. ' : ''}Щоб оцінки не зникли при очищенні браузера, <button class="linkbtn" data-myconnect>виберіть папку сайту</button> (steam-library) і дозвольте запис.`;
+  }
+  async function writeMyFile(interactive) {
+    if (!FS_OK) return;
+    if (!dirHandle && interactive) {
+      try { dirHandle = await window.showDirectoryPicker({ id: 'steamlib', mode: 'readwrite' }); } catch { return; }
+      try { await dirHandle.getFileHandle('roguelikes.html'); } catch {
+        if (!confirm(`У папці «${dirHandle.name}» немає roguelikes.html. Точно зберігати оцінки сюди?`)) { dirHandle = null; return; }
+      }
+      try { await idb('readwrite', (st) => st.put(dirHandle, 'dir')); } catch {}
+      // Якщо у вибраній папці вже є файл з оцінками новішим за наш, спершу підтягуємо його
+      try {
+        const txt = await (await (await dirHandle.getFileHandle('my-ratings.js')).getFile()).text();
+        const m = txt.match(/window\.MY_RATINGS\s*=\s*([\s\S]*?);?\s*$/);
+        const d = m && JSON.parse(m[1]);
+        if (d && (d.updated || '') > myUpdated) { MY = validRatings(d.ratings); myUpdated = d.updated; render(); }
+      } catch {}
+    }
+    if (!dirHandle) return;
+    let perm = await dirHandle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted' && interactive) perm = await dirHandle.requestPermission({ mode: 'readwrite' }).catch(() => 'denied');
+    if (perm !== 'granted') { myStatus = ''; renderMyStore(); return; }
+    try {
+      const w = await (await dirHandle.getFileHandle('my-ratings.js', { create: true })).createWritable();
+      await w.write(myFileText()); await w.close();
+      myStatus = 'ok'; fileStale = false;
+    } catch { myStatus = 'error'; }
+    renderMyStore();
+  }
+  const queueWrite = (interactive) => (writing = writing.then(() => writeMyFile(interactive)).catch(() => {}));
+  const saveMy = () => {
+    myUpdated = new Date().toISOString();
+    fileStale = true;
+    try { localStorage.setItem(MY_KEY, JSON.stringify({ updated: myUpdated, ratings: MY })); } catch {}
+    queueWrite(true);
+  };
+  if (FS_OK) idb('readonly', (st) => st.get('dir')).then((h) => { dirHandle = h || null; if (dirHandle) queueWrite(false); else renderMyStore(); }).catch(() => renderMyStore());
   const myRate = (g) => MY[g.key] ?? null;
   const myRateSelect = (g) => `<select class="myrate ${myRate(g) != null ? rateCls(myRate(g)) : ''}" data-myrate="${esc(g.key)}" title="Моя оцінка">
       <option value="">—</option>${[10, 9, 8, 7, 6, 5, 4, 3, 2, 1].map((n) => `<option value="${n}" ${myRate(g) === n ? 'selected' : ''}>${n}</option>`).join('')}</select>`;
@@ -367,6 +438,7 @@
     $('rateFill').style.right = (10 - S.maxRate) * 10 + '%';
     // Коли повзунки зійшлися, верхнім робимо той, що ще може рухатись
     $('minRate').style.zIndex = S.minRate >= 9 ? 3 : 1;
+    renderMyStore();
     const myFiltered = S.myMin > 1 || S.myMax < 10;
     $('myMin').value = S.myMin; $('myMax').value = S.myMax;
     $('myRateVal').textContent = !myFiltered ? '' : S.myMin === S.myMax ? `рівно ${S.myMin}/10` : `від ${S.myMin} до ${S.myMax}/10`;
@@ -507,6 +579,7 @@
     const t = e.target;
     let el;
     if (t.closest('select.myrate')) return;
+    if (t.closest('[data-myconnect]')) { queueWrite(true); return; }
     if ((el = t.closest('[data-mode]'))) { e.stopPropagation(); S.modes = toggleIn(S.modes, el.dataset.mode); if (el.closest('dialog')) $('dlg').close(); render(); return; }
     if ((el = t.closest('[data-unstag]'))) { const id = +el.dataset.unstag; S.stags = S.stags.filter((x) => x !== id); S.stagExc = S.stagExc.filter((x) => x !== id); render(); return; }
     if ((el = t.closest('[data-stagexc]'))) { toggleStag(+el.dataset.stagexc, 'exc'); return; }
@@ -558,8 +631,8 @@
   });
   $('myExport').addEventListener('click', () => {
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob([JSON.stringify(MY, null, 1)], { type: 'application/json' }));
-    a.download = `my-roguelike-ratings-${new Date().toISOString().slice(0, 10)}.json`;
+    a.href = URL.createObjectURL(new Blob([myFileText()], { type: 'text/javascript' }));
+    a.download = 'my-ratings.js';
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
   $('myImport').addEventListener('click', () => $('myImportFile').click());
@@ -567,8 +640,10 @@
     const f = e.target.files[0]; e.target.value = '';
     if (!f) return;
     try {
-      const data = JSON.parse(await f.text());
-      for (const [k, v] of Object.entries(data)) if (Number.isInteger(v) && v >= 1 && v <= 10) MY[k] = v;
+      const txt = await f.text();
+      const m = txt.match(/window\.MY_RATINGS\s*=\s*([\s\S]*?);?\s*$/);
+      const data = JSON.parse(m ? m[1] : txt);
+      Object.assign(MY, validRatings(data.ratings || data));
       saveMy(); render();
     } catch { alert('Не вдалося прочитати файл з оцінками'); }
   });
