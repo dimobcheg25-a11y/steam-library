@@ -231,7 +231,7 @@
   let fileStale = !!(localData && (!fileData || (localData.updated || '') > (fileData.updated || '')));
 
   const FS_OK = 'showDirectoryPicker' in window;
-  let dirHandle = null, myStatus = '', writing = Promise.resolve();
+  let dirHandle = null, myStatus = '', myErr = '', writing = Promise.resolve();
   const idb = (mode, fn) => new Promise((res, rej) => {
     const r = indexedDB.open('steamlib', 1);
     r.onupgradeneeded = () => r.result.createObjectStore('kv');
@@ -244,16 +244,18 @@
     const el = $('myStore');
     if (!el) return;
     if (!FS_OK) { el.innerHTML = '⚠ Цей браузер не вміє писати у файл. Оцінки збережено лише в браузері: після змін натисніть «Скачати my-ratings.js» і покладіть файл у папку сайту (замість старого).'; return; }
-    if (myStatus === 'ok') { el.innerHTML = '💾 Зберігається у файл <code>my-ratings.js</code> у папці сайту.'; return; }
-    if (myStatus === 'error') { el.innerHTML = '⚠ Не вдалося записати файл. <button class="linkbtn" data-myconnect>Вибрати папку ще раз</button>'; return; }
-    if (dirHandle && !fileStale) { el.innerHTML = '💾 Оцінки у файлі <code>my-ratings.js</code>. Дозвіл на запис браузер попросить при наступній зміні.'; return; }
-    if (dirHandle) { el.innerHTML = '⚠ Є незбережені у файл зміни. <button class="linkbtn" data-myconnect>Дозволити запис</button>'; return; }
+    if (myStatus === 'ok') { el.innerHTML = `✅ Оцінки записано у файл <code>my-ratings.js</code> у папці «${esc(dirHandle?.name)}».`; return; }
+    if (myStatus === 'error') { el.innerHTML = `⚠ Не вдалося записати файл: <code>${esc(myErr)}</code>. <button class="linkbtn" data-myrepick>Вибрати папку ще раз</button>`; return; }
+    if (dirHandle) { el.innerHTML = `⚠ Папку «${esc(dirHandle.name)}» вибрано, але браузер ще не дозволив запис, тож файл не збережено. <button class="btn" data-myconnect style="margin-top:6px">Дозволити запис</button>`; return; }
     el.innerHTML = `⚠ ${fileStale ? 'Є незбережені у файл зміни. ' : ''}Щоб оцінки не зникли при очищенні браузера, <button class="linkbtn" data-myconnect>виберіть папку сайту</button> (steam-library) і дозвольте запис.`;
   }
   async function writeMyFile(interactive) {
     if (!FS_OK) return;
     if (!dirHandle && interactive) {
-      try { dirHandle = await window.showDirectoryPicker({ id: 'steamlib', mode: 'readwrite' }); } catch { return; }
+      try { dirHandle = await window.showDirectoryPicker({ id: 'steamlib', mode: 'readwrite' }); } catch (e) {
+        if (e.name !== 'AbortError') { myStatus = 'error'; myErr = `${e.name}: ${e.message}`; }
+        renderMyStore(); return;
+      }
       try { await dirHandle.getFileHandle('roguelikes.html'); } catch {
         if (!confirm(`У папці «${dirHandle.name}» немає roguelikes.html. Точно зберігати оцінки сюди?`)) { dirHandle = null; return; }
       }
@@ -268,13 +270,13 @@
     }
     if (!dirHandle) return;
     let perm = await dirHandle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted' && interactive) perm = await dirHandle.requestPermission({ mode: 'readwrite' }).catch(() => 'denied');
+    if (perm !== 'granted' && interactive) perm = await dirHandle.requestPermission({ mode: 'readwrite' }).catch(() => 'prompt');
     if (perm !== 'granted') { myStatus = ''; renderMyStore(); return; }
     try {
       const w = await (await dirHandle.getFileHandle('my-ratings.js', { create: true })).createWritable();
       await w.write(myFileText()); await w.close();
-      myStatus = 'ok'; fileStale = false;
-    } catch { myStatus = 'error'; }
+      myStatus = 'ok'; myErr = ''; fileStale = false;
+    } catch (e) { myStatus = 'error'; myErr = `${e.name}: ${e.message}`; }
     renderMyStore();
   }
   const queueWrite = (interactive) => (writing = writing.then(() => writeMyFile(interactive)).catch(() => {}));
@@ -580,6 +582,7 @@
     let el;
     if (t.closest('select.myrate')) return;
     if (t.closest('[data-myconnect]')) { queueWrite(true); return; }
+    if (t.closest('[data-myrepick]')) { dirHandle = null; myStatus = ''; idb('readwrite', (st) => st.delete('dir')).catch(() => {}); queueWrite(true); return; }
     if ((el = t.closest('[data-mode]'))) { e.stopPropagation(); S.modes = toggleIn(S.modes, el.dataset.mode); if (el.closest('dialog')) $('dlg').close(); render(); return; }
     if ((el = t.closest('[data-unstag]'))) { const id = +el.dataset.unstag; S.stags = S.stags.filter((x) => x !== id); S.stagExc = S.stagExc.filter((x) => x !== id); render(); return; }
     if ((el = t.closest('[data-stagexc]'))) { toggleStag(+el.dataset.stagexc, 'exc'); return; }
