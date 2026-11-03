@@ -248,7 +248,7 @@
     });
     const cols = [
       ['m', 'Учасник'], ['count', 'Ігор'], ['only', 'Ні в кого більше'], ['share', 'Частка бібліотеки'], ['sum', 'Вартість'],
-      ['avg', 'Середня ціна'], ['med', 'Медіана'], ['rev', 'Сер. відгук'], ['year', 'Типовий рік'], ['topPrice', 'Найдорожча гра'],
+      ['avg', 'Середня ціна'], ['med', 'Медіана'], ['rev', 'Сер. відгук'], ['year', 'Медіанний рік релізу', 'Половина ігор учасника вийшла в цей рік або раніше, половина в цей рік або пізніше'], ['topPrice', 'Найдорожча гра'],
     ];
     const sorted = [...stats].sort((a, b) => {
       const k = memberSort.key, x = a[k], y = b[k];
@@ -256,7 +256,7 @@
     });
     h += box('Хто скільки має',
       'Кожна копія рахується в її власника, тому одна гра може бути в кількох рядках. «Ні в кого більше»: ігри, яких більше ні в кого в сім’ї немає. Клік по заголовку сортує.',
-      `<div class="tablewrap"><table class="members"><thead><tr>${cols.map(([k, t]) => `<th data-k="${k}" class="${memberSort.key === k ? 'sorted' : ''}">${t}${memberSort.key === k ? (memberSort.dir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead><tbody>
+      `<div class="tablewrap"><table class="members"><thead><tr>${cols.map(([k, t, tip]) => `<th data-k="${k}"${tip ? ` title="${esc(tip)}"` : ''} class="${memberSort.key === k ? 'sorted' : ''}">${t}${memberSort.key === k ? (memberSort.dir < 0 ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead><tbody>
       ${sorted.map((s) => `<tr><td>${who(s.m)}</td><td>${fmt(s.count)}</td><td>${fmt(s.only)}</td><td>${Math.round(s.share * 100)}%</td><td>${uah(s.sum)}</td>
         <td>${uah(s.avg)}</td><td>${uah(s.med)}</td><td>${s.rev ? Math.round(s.rev) + '%' : '—'}</td><td>${s.year || '—'}</td>
         <td class="game">${s.top ? `${esc(s.top.name)} · <b>${uah(s.top.price)}</b>` : '—'}</td></tr>`).join('')}
@@ -336,7 +336,7 @@
       const maxY = Math.max(...years.map((y) => y[1]));
       const all = []; for (let y = y0; y <= y1; y++) all.push([y, ym.get(y) || 0]);
       const peak = years[0];
-      h += box('Роки релізу', `Найбільше ігор вийшло у ${peak[0]} році: ${gamesW(peak[1])}. Типовий рік: ${median(scope.filter((g) => g.release).map((g) => +g.release.slice(0, 4)))}.`,
+      h += box('Роки релізу', `Найбільше ігор вийшло у ${peak[0]} році: ${gamesW(peak[1])}. Медіанний рік релізу: ${median(scope.filter((g) => g.release).map((g) => +g.release.slice(0, 4)))} (половина ігор вийшла в цей рік або раніше).`,
         `<div class="cols">${all.map(([y, v]) => `<div style="height:${(v / maxY) * 100}%" title="${y}: ${gamesW(v)}"></div>`).join('')}</div>
          <div class="cols-x">${all.map(([y]) => `<span>${y % 5 === 0 ? y : ''}</span>`).join('')}</div>`, true);
     }
