@@ -5,6 +5,7 @@
 // Нотатки Тіана (російською) перекладаються через Google Translate і кешуються в notes-uk.json,
 // переклад там можна виправити вручну: він не зміниться, доки Тіан не змінить нотатку.
 // Гра ніколи не потрапляє у два пости поспіль: склад останнього поста зберігається в discord-posted.json.
+// Ігри, пов'язані з РФ (поле ru з import-roguelikes.py), не публікуються ніколи.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
 
@@ -50,7 +51,7 @@ const lastPost = existsSync(POSTED_FILE) ? JSON.parse(readFileSync(POSTED_FILE, 
 const postedLast = new Set(Array.isArray(lastPost.appids) ? lastPost.appids : []);
 
 const picks = ROGUELIKES.games
-  .filter((g) => g.appid && g.discount > 0 && !postedLast.has(g.appid))
+  .filter((g) => g.appid && g.discount > 0 && !g.ru?.length && !postedLast.has(g.appid))
   .map((g) => ({ ...g, mine: myRatings[g.appid] ?? null }))
   .filter((g) => (g.rating ?? 0) >= MIN_RATING || (g.mine ?? 0) >= MIN_RATING)
   .sort(

@@ -332,6 +332,10 @@
     return true;
   }
 
+  // Ігри, пов'язані з РФ (розробник, видавець або країна гри — Росія за Wikidata)
+  const RU_WARN = 'Купуючи цю гру, з ваших грошей може бути сплачений податок у Росії';
+  const ruTitle = (g) => `${RU_WARN}. Чому: ${g.ru.join('; ')}`;
+  const ruMark = (g) => g.ru?.length ? `<span title="${esc(ruTitle(g))}" style="cursor:help">💩</span> ` : '';
   const fmtUah = (v) => Math.round(v).toLocaleString('uk-UA') + '₴';
   // Чому немає ціни (старі дані без no_price — запасний варіант)
   const noPrice = (g) => g.lib || g.price ? '' : g.no_price || (g.coming_soon ? 'Ще не вийшла' : g.appid ? 'Ціна невідома' : 'Немає в Steam');
@@ -495,7 +499,7 @@
       $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Жанр</th>${th('rating', 'Тіан ★', 'num')}${th('myRating', 'Моя', 'num')}${th('difficulty', 'Складн.', 'num')}${th('tianHours', 'Тіан', 'num')}<th>Статус</th>${th('myHours', 'Я', 'num')}${th('price', 'Ціна', 'num')}${th('discount', 'Знижка', 'num')}${th('saving', 'Економія', 'num')}${th('release', 'Рік', 'num')}</tr></thead><tbody>` +
         current.map((g) => `<tr class="g" data-key="${esc(g.key)}">
           <td>${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="">` : ''}</td>
-          <td>${pos(g)} <b>${esc(g.name)}</b><div class="note" style="-webkit-line-clamp:1">${esc(g.notes)}</div></td>
+          <td>${pos(g)} ${ruMark(g)}<b>${esc(g.name)}</b><div class="note" style="-webkit-line-clamp:1">${esc(g.notes)}</div></td>
           <td>${esc(g.genres.join(', '))}</td>
           <td class="num"><b class="${rateCls(g.rating)}">${g.rating ?? '—'}</b></td>
           <td class="num">${myRateSelect(g)}</td>
@@ -517,9 +521,10 @@
           ${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="" onerror="this.remove()">` : ''}
           ${g.rating != null || myRate(g) != null ? `<span class="badge l rating">${g.rating != null ? `<span title="Оцінка Тіана">★ ${g.rating}/10</span>` : ''}${myRate(g) != null ? `<span title="Моя оцінка"> · моя ${myRate(g)}</span>` : ''}</span>` : ''}
           ${mineBadge(g)}
+          ${g.ru?.length ? `<span class="badge l ru" title="${esc(ruTitle(g))}">💩 податки в РФ</span>` : ''}
         </div>
         <div class="body">
-          <div class="title">${pos(g)} ${esc(g.name)}</div>
+          <div class="title">${pos(g)} ${ruMark(g)}${esc(g.name)}</div>
           <div class="meta"><span>${esc(g.genres.join(', '))}</span><span>${esc(g.settings.join(', '))}</span></div>
           <div class="meta">${diffHtml(g.difficulty)}${statusPill(g)}${g.tian_hours ? `<span title="Скільки награв Тіан">Тіан: ${hours(g.tian_hours)}</span>` : ''}</div>
           ${modePills(g) ? `<div class="meta">${modePills(g)}</div>` : ''}
@@ -541,7 +546,8 @@
       <button class="close" aria-label="Закрити">×</button>
       ${g.image ? `<div class="dlg-cover"><img src="${esc(g.image)}" alt=""></div>` : ''}
       <div class="dlg-body">
-        <h2>${esc(g.name)}</h2>
+        <h2>${ruMark(g)}${esc(g.name)}</h2>
+        ${g.ru?.length ? `<p class="ru-warn">💩 ${RU_WARN}. Чому: ${esc(g.ru.join('; '))}.</p>` : ''}
         <div class="meta">${g.rating != null ? `<b class="${rateCls(g.rating)}">★ ${g.rating}/10 від Тіана</b>` : ''}<span>Моя оцінка: ${myRateSelect(g)}</span>${statusPill(g)}${g.steam_pct != null ? `<span>Steam: 👍 ${g.steam_pct}% (${g.steam_reviews})</span>` : ''}</div>
         ${g.notes ? `<p>${esc(g.notes)}</p>` : ''}
         <dl class="kv">

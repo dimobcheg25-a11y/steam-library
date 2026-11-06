@@ -9,6 +9,7 @@ import datetime as dt
 import json
 import re
 import sys
+import time
 import unicodedata
 import urllib.parse
 import urllib.request
@@ -199,7 +200,8 @@ for i in range(0, len(appids), 100):
         'ids': [{'appid': a} for a in appids[i:i + 100]],
         'context': {'language': 'ukrainian', 'country_code': 'UA'},
         'data_request': {'include_assets': True, 'include_reviews': True, 'include_release': True,
-                         'include_all_purchase_options': True, 'include_tag_count': 20},
+                         'include_all_purchase_options': True, 'include_tag_count': 20,
+                         'include_basic_info': True},
     }
     with urllib.request.urlopen(API + '?' + urllib.parse.urlencode({'input_json': json.dumps(inp)}), timeout=60) as resp:
         for it in json.load(resp)['response'].get('store_items', []):
@@ -262,6 +264,102 @@ for g in games:
     g['categories'] = sorted({c for k in ('supported_player_categoryids', 'feature_categoryids', 'controller_categoryids')
                               for c in cats.get(k, [])})
     g['tags'] = [t['tagid'] for t in it.get('tags') or []]
+    bi = it.get('basic_info') or {}
+    g['developers'] = [d['name'] for d in bi.get('developers') or [] if d.get('name')]
+    g['publishers'] = [d['name'] for d in bi.get('publishers') or [] if d.get('name')]
+
+
+# ---------- Перевірка на зв'язок із РФ (Wikidata) ----------
+# Гра позначається, якщо Wikidata підтверджує, що Росія — країна її розробника, видавця або самої гри.
+# Перевіряються всі ігри при кожному імпорті (нові теж); відповіді кешуються в ru-cache.json на 30 днів.
+RU_CACHE = HERE / 'ru-cache.json'
+RU_TTL = 30 * 24 * 3600
+WD_HEADERS = {'User-Agent': 'steam-library-stats/1.0 (personal project)', 'Accept': 'application/sparql-results+json',
+              'Content-Type': 'application/x-www-form-urlencoded'}
+
+
+def sparql(q):
+    for attempt in range(1, 5):
+        try:
+            req = urllib.request.Request('https://query.wikidata.org/sparql',
+                                         data=urllib.parse.urlencode({'query': q}).encode(), headers=WD_HEADERS)
+            with urllib.request.urlopen(req, timeout=90) as resp:
+                return json.load(resp)['results']['bindings']
+        except Exception:
+            if attempt == 4:
+                raise
+            time.sleep(attempt * 5)  # Wikidata обмежує частоту запитів
+
+
+def ru_check(games):
+    try:
+        cache = json.loads(RU_CACHE.read_text(encoding='utf-8'))
+    except Exception:
+        cache = {}
+    apps, names = cache.setdefault('apps', {}), cache.setdefault('names', {})
+    now = time.time()
+    fresh = lambda e: e and now - e.get('t', 0) < RU_TTL
+    failed = 0
+
+    # 1. За appid: країна розробника (P178), видавця (P123) і самої гри (P495)
+    todo = [str(g['appid']) for g in games if g['appid'] and not fresh(apps.get(str(g['appid'])))]
+    role_q = {
+        'розробник': 'wdt:P178', 'видавець': 'wdt:P123',
+    }
+    for i in range(0, len(todo), 25):
+        chunk = todo[i:i + 25]
+        values = ' '.join(json.dumps(a) for a in chunk)
+        found = {a: [] for a in chunk}
+        try:
+            for role, prop in role_q.items():
+                for b in sparql(f'''SELECT ?appid ?name WHERE {{ VALUES ?appid {{ {values} }} ?g wdt:P1733 ?appid.
+                    ?g {prop} ?e. ?e wdt:P17|wdt:P159/wdt:P17 wd:Q159.
+                    OPTIONAL {{ ?e rdfs:label ?name FILTER(lang(?name)="en") }} }}'''):
+                    found[b['appid']['value']].append(f"{role} {b.get('name', {}).get('value', '')}".strip())
+            for b in sparql(f'SELECT ?appid WHERE {{ VALUES ?appid {{ {values} }} ?g wdt:P1733 ?appid; wdt:P495 wd:Q159 }}'):
+                found[b['appid']['value']].append('країна гри — Росія')
+        except Exception:
+            failed += len(chunk)
+            continue
+        for a, why in found.items():
+            apps[a] = {'t': now, 'ru': sorted(set(why))}
+        print(f'\rПеревірка РФ (ігри): {min(i + 25, len(todo))}/{len(todo)}', end='')
+    if todo:
+        print()
+
+    # 2. За назвами студій і видавців зі Steam (Wikidata часто не знає, хто зробив гру, але знає студію)
+    todo = sorted({n for g in games for n in g.get('developers', []) + g.get('publishers', []) if not fresh(names.get(n))})
+    for i in range(0, len(todo), 10):
+        chunk = todo[i:i + 10]
+        values = ' '.join(json.dumps(n) + '@en' for n in chunk)
+        try:
+            hits = {b['n']['value'] for b in sparql(f'''SELECT DISTINCT ?n WHERE {{ VALUES ?n {{ {values} }}
+                ?e rdfs:label|skos:altLabel ?n. ?e wdt:P31/wdt:P279* ?t.
+                VALUES ?t {{ wd:Q4830453 wd:Q210167 wd:Q1137109 wd:Q43229 wd:Q5 }}
+                ?e wdt:P17|wdt:P159/wdt:P17|wdt:P27 wd:Q159 }}''')}
+        except Exception:
+            failed += len(chunk)
+            continue
+        for n in chunk:
+            names[n] = {'t': now, 'ru': n in hits}
+        print(f'\rПеревірка РФ (студії): {min(i + 10, len(todo))}/{len(todo)}', end='')
+    if todo:
+        print()
+    if failed:
+        print(f'Wikidata не відповіла для {failed} запитів — для них використано старий кеш, решту перевірить наступний імпорт')
+
+    RU_CACHE.write_text(json.dumps(cache, ensure_ascii=False), encoding='utf-8')
+    for g in games:
+        why = list((apps.get(str(g['appid'])) or {}).get('ru', [])) if g['appid'] else []
+        why += [f'розробник {n}' for n in g.get('developers', []) if (names.get(n) or {}).get('ru')]
+        why += [f'видавець {n}' for n in g.get('publishers', []) if (names.get(n) or {}).get('ru')]
+        if why:
+            g['ru'] = sorted(set(why), key=why.index)
+    flagged = [g['name'] for g in games if g.get('ru')]
+    print(f"Пов'язані з РФ: {len(flagged)} — " + ', '.join(flagged))
+
+
+ru_check(games)
 
 # Назви тегів англійською й українською
 tag_names = {}

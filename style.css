@@ -181,6 +181,8 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .badge.r.fam { background: rgba(120,80,200,.92); }
 .badge.r.price { background: rgba(0,0,0,.72); }
 .badge.r.noprice { font-style: italic; font-weight: 400; max-width: calc(100% - 16px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.badge.l.ru { top: auto; bottom: 8px; background: rgba(110,60,20,.92); cursor: help; }
+.ru-warn { color: #e9a36b; }
 .noprice-txt { color: var(--muted); font-size: 12px; font-style: italic; white-space: nowrap; }
 .badge .disc { background: #4c6b22; color: #beee11; padding: 0 4px; border-radius: 4px; margin-right: 4px; }
 .r-good { color: var(--good); } .r-mid { color: var(--mid); } .r-bad { color: var(--bad); }
