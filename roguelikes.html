@@ -497,9 +497,9 @@
     if (S.view === 'list') {
       const th = (k, l, c = '') => `<th class="${c} ${S.sort === k ? 'sorted' : ''}" data-sort="${k}">${l}${S.sort === k ? (S.dir === 'asc' ? ' ↑' : ' ↓') : ''}</th>`;
       $('results').innerHTML = `<table class="list"><thead><tr><th></th>${th('name', 'Назва')}<th>Жанр</th>${th('rating', 'Тіан ★', 'num')}${th('myRating', 'Моя', 'num')}${th('difficulty', 'Складн.', 'num')}${th('tianHours', 'Тіан', 'num')}<th>Статус</th>${th('myHours', 'Я', 'num')}${th('price', 'Ціна', 'num')}${th('discount', 'Знижка', 'num')}${th('saving', 'Економія', 'num')}${th('release', 'Рік', 'num')}</tr></thead><tbody>` +
-        current.map((g) => `<tr class="g" data-key="${esc(g.key)}">
-          <td>${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="">` : ''}</td>
-          <td>${pos(g)} ${ruMark(g)}<b>${esc(g.name)}</b><div class="note" style="-webkit-line-clamp:1">${esc(g.notes)}</div></td>
+        current.map((g) => `<tr class="g${g.ru?.length ? ' ru' : ''}" data-key="${esc(g.key)}"${g.ru?.length ? ` title="${esc(ruTitle(g))}"` : ''}>
+          <td class="cov">${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="">` : ''}</td>
+          <td>${pos(g)} <b>${esc(g.name)}</b>${g.ru?.length ? ' <span class="ru-pill">💩 податки в РФ</span>' : ''}<div class="note" style="-webkit-line-clamp:1">${esc(g.notes)}</div></td>
           <td>${esc(g.genres.join(', '))}</td>
           <td class="num"><b class="${rateCls(g.rating)}">${g.rating ?? '—'}</b></td>
           <td class="num">${myRateSelect(g)}</td>
@@ -515,7 +515,7 @@
       return;
     }
     $('results').innerHTML = '<div class="grid">' + current.map((g) => `
-      <div class="card" data-key="${esc(g.key)}">
+      <div class="card${g.ru?.length ? ' ru' : ''}" data-key="${esc(g.key)}">
         <div class="cover">
           <div class="noimg">${esc(g.name)}</div>
           ${g.image ? `<img loading="lazy" src="${esc(g.image)}" alt="" onerror="this.remove()">` : ''}
