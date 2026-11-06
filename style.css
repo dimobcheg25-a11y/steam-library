@@ -180,6 +180,8 @@ dialog::backdrop { background: rgba(0,0,0,.6); }
 .badge.r.own { background: rgba(35,135,79,.92); }
 .badge.r.fam { background: rgba(120,80,200,.92); }
 .badge.r.price { background: rgba(0,0,0,.72); }
+.badge.r.noprice { font-style: italic; font-weight: 400; max-width: calc(100% - 16px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.noprice-txt { color: var(--muted); font-size: 12px; font-style: italic; white-space: nowrap; }
 .badge .disc { background: #4c6b22; color: #beee11; padding: 0 4px; border-radius: 4px; margin-right: 4px; }
 .r-good { color: var(--good); } .r-mid { color: var(--mid); } .r-bad { color: var(--bad); }
 .diff { display: inline-flex; align-items: center; gap: 5px; }

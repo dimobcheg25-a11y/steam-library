@@ -333,6 +333,10 @@
   }
 
   const fmtUah = (v) => Math.round(v).toLocaleString('uk-UA') + '₴';
+  // Чому немає ціни (старі дані без no_price — запасний варіант)
+  const noPrice = (g) => g.lib || g.price ? '' : g.no_price || (g.coming_soon ? 'Ще не вийшла' : g.appid ? 'Ціна невідома' : 'Немає в Steam');
+  // Група для сортування за ціною: спершу ігри з ціною (разом із безкоштовними), далі без ціни, наприкінці ті, що вже є
+  const priceGroup = (g) => g.lib ? 2 : g.price_uah != null ? 0 : 1;
   const num = (v) => (v == null ? -Infinity : v);
   const SORTERS = {
     rating: (a, b) => num(a.rating) - num(b.rating) || num(a.steam_pct) - num(b.steam_pct),
@@ -341,7 +345,7 @@
     tianHours: (a, b) => num(a.tian_hours) - num(b.tian_hours),
     myHours: (a, b) => num(a.lib?.playtime_hours) - num(b.lib?.playtime_hours),
     steam: (a, b) => num(a.steam_pct) - num(b.steam_pct) || num(a.steam_reviews) - num(b.steam_reviews),
-    price: (a, b) => num(a.lib ? 0 : a.price_uah) - num(b.lib ? 0 : b.price_uah),
+    price: (a, b) => num(a.price_uah) - num(b.price_uah) || (noPrice(a)).localeCompare(noPrice(b), 'uk'),
     discount: (a, b) => (a.lib ? 0 : a.discount || 0) - (b.lib ? 0 : b.discount || 0) || (a.lib ? 0 : a.saving_uah || 0) - (b.lib ? 0 : b.saving_uah || 0),
     saving: (a, b) => (a.lib ? 0 : a.saving_uah || 0) - (b.lib ? 0 : b.saving_uah || 0) || (a.lib ? 0 : a.discount || 0) - (b.lib ? 0 : b.discount || 0),
     release: (a, b) => (a.release || '').localeCompare(b.release || ''),
@@ -355,7 +359,7 @@
     current = games.filter((g) => pass(g));
     let key = S.sort, dir = S.dir === 'asc' ? 1 : -1;
     if (key === 'collection' && S.coll < 0) { key = 'rating'; dir = -1; }
-    current.sort((a, b) => dir * SORTERS[key](a, b) || a.name.localeCompare(b.name, 'uk'));
+    current.sort((a, b) => (key === 'price' ? priceGroup(a) - priceGroup(b) : 0) || dir * SORTERS[key](a, b) || a.name.localeCompare(b.name, 'uk'));
   }
   // Лічильник для кожного значення: скільки ігор буде, якщо вибрати його (з урахуванням інших фільтрів)
   function counts(field, skip) {
@@ -463,8 +467,8 @@
       return `<span class="badge r ${cls}" title="${g.lib.source === 'own' ? 'Є у вашій бібліотеці' : 'Сімейна: ' + esc(g.lib.owners)}">${who}${played(g) ? '✓ ' + hours(g.lib.playtime_hours) : 'є, не грав'}</span>`;
     }
     if (g.price) return `<span class="badge r price" title="Немає у вас. Ціна в Steam${g.saving_uah ? ` (було ${fmtUah(g.price_orig_uah)}, економія ${fmtUah(g.saving_uah)})` : ''}">${g.discount ? `<span class="disc">-${g.discount}%</span>` : ''}${esc(g.price)}</span>`;
-    if (g.coming_soon) return '<span class="badge r price">ще не вийшла</span>';
-    return '';
+    const np = noPrice(g);
+    return np ? `<span class="badge r price noprice" title="Немає ціни Steam: ${esc(np)}">${esc(np)}</span>` : '';
   }
   function mineText(g) {
     if (!g.lib) return '<span style="color:var(--muted)">немає</span>';
@@ -499,7 +503,7 @@
           <td class="num">${g.tian_hours ? hours(g.tian_hours) : ''}</td>
           <td>${statusPill(g)}</td>
           <td class="num">${mineText(g)}</td>
-          <td class="num">${g.lib ? '' : esc(g.price || '')}</td>
+          <td class="num">${g.lib ? '' : g.price ? esc(g.price) : `<span class="noprice-txt">${esc(noPrice(g))}</span>`}</td>
           <td class="num">${!g.lib && g.discount ? `<span class="r-good">-${g.discount}%</span>` : ''}</td>
           <td class="num">${!g.lib && g.saving_uah ? fmtUah(g.saving_uah) : ''}</td>
           <td class="num">${g.release ? g.release.slice(0, 4) : ''}</td>
@@ -541,7 +545,7 @@
         <div class="meta">${g.rating != null ? `<b class="${rateCls(g.rating)}">★ ${g.rating}/10 від Тіана</b>` : ''}<span>Моя оцінка: ${myRateSelect(g)}</span>${statusPill(g)}${g.steam_pct != null ? `<span>Steam: 👍 ${g.steam_pct}% (${g.steam_reviews})</span>` : ''}</div>
         ${g.notes ? `<p>${esc(g.notes)}</p>` : ''}
         <dl class="kv">
-          <dt>У мене</dt><dd>${g.lib ? (played(g) ? `грав ${hours(g.lib.playtime_hours)}${g.lib.last_played ? `, востаннє ${g.lib.last_played}` : ''}` : 'є, ще не грав') + (g.lib.source === 'family' ? ` · сімейна (${esc(g.lib.owners)})` : ' · моя') : `немає${g.price ? ` · ${g.discount ? `<span class="r-good">-${g.discount}%</span> ` : ''}${esc(g.price)}${g.saving_uah ? ` <span style="opacity:.65">(було ${fmtUah(g.price_orig_uah)}, економія ${fmtUah(g.saving_uah)})</span>` : ''}` : ''}`}</dd>
+          <dt>У мене</dt><dd>${g.lib ? (played(g) ? `грав ${hours(g.lib.playtime_hours)}${g.lib.last_played ? `, востаннє ${g.lib.last_played}` : ''}` : 'є, ще не грав') + (g.lib.source === 'family' ? ` · сімейна (${esc(g.lib.owners)})` : ' · моя') : `немає${g.price ? ` · ${g.discount ? `<span class="r-good">-${g.discount}%</span> ` : ''}${esc(g.price)}${g.saving_uah ? ` <span style="opacity:.65">(було ${fmtUah(g.price_orig_uah)}, економія ${fmtUah(g.saving_uah)})</span>` : ''}` : ` · ${esc(noPrice(g))}`}`}</dd>
           <dt>Жанр</dt><dd>${esc(g.genres.join(', '))}</dd>
           <dt>Сеттинг</dt><dd>${esc(g.settings.join(', '))}</dd>
           ${g.difficulty ? `<dt>Складність</dt><dd>${diffHtml(g.difficulty)}</dd>` : ''}

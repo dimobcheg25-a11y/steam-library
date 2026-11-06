@@ -193,6 +193,7 @@ for c in cs[1]:
 API = 'https://api.steampowered.com/IStoreBrowseService/GetItems/v1/'
 appids = [g['appid'] for g in games if g['appid']]
 store = {}
+region_locked = set()
 for i in range(0, len(appids), 100):
     inp = {
         'ids': [{'appid': a} for a in appids[i:i + 100]],
@@ -204,12 +205,33 @@ for i in range(0, len(appids), 100):
         for it in json.load(resp)['response'].get('store_items', []):
             if it.get('success') == 1:
                 store[it['appid']] = it
+            elif it.get('unvailable_for_country_restriction'):
+                region_locked.add(it.get('appid') or it.get('id'))
     print(f'\rДані магазину: {min(i + 100, len(appids))}/{len(appids)}', end='')
 print()
+
+def no_price_reason(g, it):
+    """Чому в гри немає ціни Steam (показується на сторінці замість ціни)."""
+    if not g['appid']:
+        host = urllib.parse.urlparse(g.get('url') or '').netloc.lower()
+        for k, v in (('epicgames', 'Epic Games Store'), ('gog.com', 'GOG'), ('playstation', 'PlayStation'),
+                     ('xbox', 'Xbox'), ('nintendo', 'Nintendo'), ('itch.io', 'itch.io')):
+            if k in host:
+                return f'Немає в Steam, є в {v}'
+        return 'Немає в Steam' + (f', сайт {host.removeprefix("www.")}' if host else '')
+    if not it:
+        if g['appid'] in region_locked:
+            return 'Недоступна в Україні'
+        return 'Сторінку прибрано зі Steam'
+    if (it.get('release') or {}).get('is_coming_soon'):
+        return 'Ще не вийшла'
+    return 'Не продається в Steam'
+
 
 for g in games:
     it = store.get(g['appid'])
     if not it:
+        g['no_price'] = no_price_reason(g, None)
         continue
     a = it.get('assets') or {}
     if a.get('header'):
@@ -231,6 +253,8 @@ for g in games:
         g['price'], g['price_uah'] = 'Безкоштовно', 0
     if (it.get('release') or {}).get('is_coming_soon'):
         g['coming_soon'] = True
+    if 'price' not in g:
+        g['no_price'] = no_price_reason(g, it)
     if it.get('is_early_access'):
         g['early_access'] = True
     # Режими гри (кооп, Remote Play Together, PvP, геймпад…) і теги гравців Steam (за вагою)
