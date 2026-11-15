@@ -45,9 +45,10 @@ const { MY_RATINGS } = loadWindowFile('my-ratings.js', false);
 const myRatings = MY_RATINGS?.ratings || {};
 
 // ---- Історія постів ----
-// discord-posted.json: { "posts": [{ "date": "...", "appids": [...] }, ...] } — що було в надісланих постах.
+// discord-posted.json: { "posts": [{ "date": "...", "games": { "<appid>": <знижка %>, ... } }, ...] }.
 // Гра, показана менш ніж COOLDOWN_DAYS календарних днів тому, пропускається:
 // показали в понеділок 16.11 — знову може з'явитися не раніше понеділка 07.12.
+// Виняток: якщо знижка зараз більша, ніж була в останньому пості з цією грою, її можна показати одразу.
 const COOLDOWN_DAYS = 21;
 const KEEP_DAYS = 90; // старіші записи з історії видаляються
 const POSTED_FILE = here('discord-posted.json');
@@ -63,18 +64,31 @@ const history = Array.isArray(postedRaw.posts)
 const dayIndex = (d) => Math.round(new Date(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5);
 const daysAgo = (iso) => dayIndex(new Date()) - dayIndex(new Date(iso));
 
-const recentlyPosted = new Map(); // appid → скільки днів тому показували востаннє
+// Ігри поста як { appid: знижка }; у старих записах ({ appids: [...] }) знижка невідома → null.
+const postGames = (p) =>
+  p.games
+    ? Object.entries(p.games).map(([id, d]) => [Number(id), d])
+    : (p.appids || []).map((id) => [id, null]);
+
+// appid → { ago: скільки днів тому показували востаннє, discount: яка тоді була знижка }
+const recentlyPosted = new Map();
 for (const p of history) {
   const ago = daysAgo(p.date);
   if (!(ago < COOLDOWN_DAYS)) continue;
-  for (const id of p.appids || []) {
-    if (!recentlyPosted.has(id) || ago < recentlyPosted.get(id)) recentlyPosted.set(id, ago);
+  for (const [id, discount] of postGames(p)) {
+    if (!recentlyPosted.has(id) || ago < recentlyPosted.get(id).ago) recentlyPosted.set(id, { ago, discount });
   }
 }
 
+// Гру показували нещодавно, а знижка з того часу не зросла (або невідомо, якою була).
+const blocked = (g) => {
+  const last = recentlyPosted.get(g.appid);
+  return !!last && !(last.discount != null && g.discount > last.discount);
+};
+
 const picks = ROGUELIKES.games
-  .filter((g) => g.appid && g.discount > 0 && !g.ru?.length && !recentlyPosted.has(g.appid))
-  .map((g) => ({ ...g, mine: myRatings[g.appid] ?? null }))
+  .filter((g) => g.appid && g.discount > 0 && !g.ru?.length && !blocked(g))
+  .map((g) => ({ ...g, mine: myRatings[g.appid] ?? null, prev: recentlyPosted.get(g.appid)?.discount ?? null }))
   .filter((g) => (g.rating ?? 0) >= MIN_RATING || (g.mine ?? 0) >= MIN_RATING)
   .sort(
     (a, b) =>
@@ -130,12 +144,13 @@ for (const [i, g] of picks.entries()) {
     ? `~~${uah(g.price_orig_uah)}~~ → **${uah(g.price_uah)}**`
     : `**${g.price}**`;
   const genre = g.genres?.length ? `🎮 ${g.genres.join(', ')}` : '';
+  const bigger = g.prev != null ? `📈 знижка зросла: була −${g.prev}%` : '';
   const note = await noteUk(g);
   embeds.push({
     title: `${i + 1}. ${g.name} — −${g.discount}%`,
     url: g.url,
     color: colorFor(g.discount),
-    description: [price, genre, note].filter(Boolean).join('\n'),
+    description: [price, bigger, genre, note].filter(Boolean).join('\n'),
     ...(g.image ? { thumbnail: { url: g.image } } : {}),
   });
 }
@@ -148,8 +163,8 @@ const content = picks.length
 
 if (DRY_RUN) {
   const skipped = ROGUELIKES.games
-    .filter((g) => recentlyPosted.has(g.appid) && g.discount > 0 && !g.ru?.length)
-    .map((g) => `${g.name} (${recentlyPosted.get(g.appid)} дн. тому)`);
+    .filter((g) => blocked(g) && g.discount > 0 && !g.ru?.length)
+    .map((g) => `${g.name} (${recentlyPosted.get(g.appid).ago} дн. тому)`);
   if (skipped.length)
     console.log(`(пропущено зі знижкою, бо показували за останні ${COOLDOWN_DAYS} днів: ${skipped.join(', ')})\n`);
   console.log(content.replace(/\*\*|-# /g, ''));
@@ -179,7 +194,7 @@ if (!res.ok) {
 }
 const posts = [
   ...history.filter((p) => daysAgo(p.date) < KEEP_DAYS),
-  { date: new Date().toISOString(), appids: picks.map((g) => g.appid) },
+  { date: new Date().toISOString(), games: Object.fromEntries(picks.map((g) => [g.appid, g.discount])) },
 ];
 writeFileSync(
   POSTED_FILE,
