@@ -4,7 +4,7 @@
 // Дані: roguelikes.js (ціни й знижки з import-roguelikes.py), my-ratings.js.
 // Нотатки Тіана (російською) перекладаються через Google Translate і кешуються в notes-uk.json,
 // переклад там можна виправити вручну: він не зміниться, доки Тіан не змінить нотатку.
-// Гра ніколи не потрапляє у два пости поспіль: склад останнього поста зберігається в discord-posted.json.
+// Одна гра потрапляє в пост не частіше ніж раз на 3 тижні: історія постів зберігається в discord-posted.json.
 // Ігри, пов'язані з РФ (поле ru з import-roguelikes.py), не публікуються ніколи.
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import vm from 'node:vm';
@@ -44,14 +44,36 @@ const { MY_RATINGS } = loadWindowFile('my-ratings.js', false);
 
 const myRatings = MY_RATINGS?.ratings || {};
 
-// ---- Ігри з попереднього поста ----
-// discord-posted.json: { "date": "...", "appids": [...] } — що було в останньому надісланому пості.
+// ---- Історія постів ----
+// discord-posted.json: { "posts": [{ "date": "...", "appids": [...] }, ...] } — що було в надісланих постах.
+// Гра, показана менш ніж COOLDOWN_DAYS календарних днів тому, пропускається:
+// показали в понеділок 16.11 — знову може з'явитися не раніше понеділка 07.12.
+const COOLDOWN_DAYS = 21;
+const KEEP_DAYS = 90; // старіші записи з історії видаляються
 const POSTED_FILE = here('discord-posted.json');
-const lastPost = existsSync(POSTED_FILE) ? JSON.parse(readFileSync(POSTED_FILE, 'utf8')) : {};
-const postedLast = new Set(Array.isArray(lastPost.appids) ? lastPost.appids : []);
+const postedRaw = existsSync(POSTED_FILE) ? JSON.parse(readFileSync(POSTED_FILE, 'utf8')) : {};
+// Старий формат зберігав лише останній пост: { "date": "...", "appids": [...] }.
+const history = Array.isArray(postedRaw.posts)
+  ? postedRaw.posts
+  : Array.isArray(postedRaw.appids)
+    ? [{ date: postedRaw.date, appids: postedRaw.appids }]
+    : [];
+
+// Різниця в календарних днях за місцевим часом, щоб 19:00:20 і 19:00:05 через три тижні дали рівно 21.
+const dayIndex = (d) => Math.round(new Date(d.getFullYear(), d.getMonth(), d.getDate()) / 864e5);
+const daysAgo = (iso) => dayIndex(new Date()) - dayIndex(new Date(iso));
+
+const recentlyPosted = new Map(); // appid → скільки днів тому показували востаннє
+for (const p of history) {
+  const ago = daysAgo(p.date);
+  if (!(ago < COOLDOWN_DAYS)) continue;
+  for (const id of p.appids || []) {
+    if (!recentlyPosted.has(id) || ago < recentlyPosted.get(id)) recentlyPosted.set(id, ago);
+  }
+}
 
 const picks = ROGUELIKES.games
-  .filter((g) => g.appid && g.discount > 0 && !g.ru?.length && !postedLast.has(g.appid))
+  .filter((g) => g.appid && g.discount > 0 && !g.ru?.length && !recentlyPosted.has(g.appid))
   .map((g) => ({ ...g, mine: myRatings[g.appid] ?? null }))
   .filter((g) => (g.rating ?? 0) >= MIN_RATING || (g.mine ?? 0) >= MIN_RATING)
   .sort(
@@ -122,10 +144,14 @@ if (cacheChanged) writeFileSync(CACHE_FILE, JSON.stringify(cache, null, 1) + '\n
 const updated = ROGUELIKES.updated?.replace('T', ' ') ?? '?';
 const content = picks.length
   ? `🔥 **Топ-${picks.length} знижок на рогалики**\n-# ціни Steam (UAH) станом на ${updated}`
-  : `😴 Немає нових (не з минулого поста) знижок на рогалики з оцінкою ${MIN_RATING}+ (ціни станом на ${updated}).`;
+  : `😴 Немає нових (не показаних за останні ${COOLDOWN_DAYS / 7} тижні) знижок на рогалики з оцінкою ${MIN_RATING}+ (ціни станом на ${updated}).`;
 
 if (DRY_RUN) {
-  if (postedLast.size) console.log(`(пропущено ігри з минулого поста: ${postedLast.size})`);
+  const skipped = ROGUELIKES.games
+    .filter((g) => recentlyPosted.has(g.appid) && g.discount > 0 && !g.ru?.length)
+    .map((g) => `${g.name} (${recentlyPosted.get(g.appid)} дн. тому)`);
+  if (skipped.length)
+    console.log(`(пропущено зі знижкою, бо показували за останні ${COOLDOWN_DAYS} днів: ${skipped.join(', ')})\n`);
   console.log(content.replace(/\*\*|-# /g, ''));
   for (const e of embeds) console.log(`\n${e.title}\n${e.description.replace(/\*\*|~~/g, '')}`);
   process.exit(0);
@@ -151,8 +177,12 @@ if (!res.ok) {
   console.error(`Discord відповів ${res.status}: ${await res.text()}`);
   process.exit(1);
 }
+const posts = [
+  ...history.filter((p) => daysAgo(p.date) < KEEP_DAYS),
+  { date: new Date().toISOString(), appids: picks.map((g) => g.appid) },
+];
 writeFileSync(
   POSTED_FILE,
-  JSON.stringify({ date: new Date().toISOString(), appids: picks.map((g) => g.appid) }) + '\n',
+  '{"posts": [\n' + posts.map((p) => ' ' + JSON.stringify(p)).join(',\n') + '\n]}\n',
 );
 console.log(`Надіслано в Discord: ${picks.length} ігор`);
